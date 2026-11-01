@@ -16,8 +16,8 @@
 <meta name="theme-color" content="#c49a6c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Special+Elite&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=29">
-<link rel="stylesheet" href="ledger.css?v=4">
+<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="ledger.css?v=5">
 <link rel="stylesheet" href="newspaper.css?v=7">
 <!-- Firebase: live shared data store (Firestore) + photo uploads (Storage) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -138,11 +138,11 @@
     <button class="btn outline" style="margin-bottom:14px" onclick="openMeatCheeseOrderPickerModal()">Order Meat &amp; Cheese</button>
     <div class="mc-public-section">
       <h4>Meats</h4>
-      <div class="mc-public-list" id="mc-public-meats"></div>
+      <div class="mc-public-list" id="mc-public-meats"><p class="empty-note market-loading" role="status"><img class="market-loading-apple" src="grounded-apple.png" alt="" width="34" height="34"><span>Loading Meats &amp; Cheese</span></p></div>
     </div>
     <div class="mc-public-section">
       <h4>Cheeses</h4>
-      <div class="mc-public-list" id="mc-public-cheeses"></div>
+      <div class="mc-public-list" id="mc-public-cheeses"><p class="empty-note market-loading" role="status"><img class="market-loading-apple" src="grounded-apple.png" alt="" width="34" height="34"><span>Loading Meats &amp; Cheese</span></p></div>
     </div>
   </section>
 
@@ -186,7 +186,7 @@
   <section class="panel produce-panel">
     <span class="ledger-tape g" style="left:30%" aria-hidden="true"></span><span class="ledger-tape" style="left:70%" aria-hidden="true"></span>
     <h2 class="panel-title">Produce Deals</h2>
-    <div class="produce-list" id="produce-list"></div>
+    <div class="produce-list" id="produce-list"><p class="empty-note market-loading" role="status"><img class="market-loading-apple" src="grounded-apple.png" alt="" width="34" height="34"><span>Loading Deals</span></p></div>
   </section>
 
   <footer class="site-footer">
@@ -244,7 +244,7 @@
 
 <script src="produce-icons.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="app.js?v=67"></script>
+<script src="app.js?v=68"></script>
 <script src="ledger-motion.js?v=2"></script>
 <script src="newspaper.js?v=1"></script>
 </body>
