@@ -516,6 +516,22 @@ body.modal-open{ overflow:hidden; }
 .chart-bar-label{ font-family:var(--font-mono); font-size:9.5px; color:var(--ink-soft); transform:rotate(-90deg); white-space:nowrap; margin-top:16px; }
 
 .empty-note{ font-style:italic; color:var(--ink-soft); font-size:13.5px; padding:10px 0; }
+/* Loading placeholder for public menus. The apple is grounded-apple.png,
+   the letter "o" cut from the Grounded logotype (groundedtitle.png). */
+.market-loading{ display:flex; align-items:center; gap:10px; }
+.market-loading-apple{
+  width:34px; height:34px; object-fit:contain; flex:0 0 auto;
+  transform-origin:50% 82%;
+  animation:market-apple-bob 1.6s ease-in-out infinite;
+}
+@keyframes market-apple-bob{
+  0%,100%{ transform:translateY(0) rotate(-8deg); }
+  45%{ transform:translateY(-6px) rotate(7deg); }
+  70%{ transform:translateY(-2px) rotate(-3deg); }
+}
+@media (prefers-reduced-motion: reduce){
+  .market-loading-apple{ animation:none; transform:rotate(-6deg); }
+}
 
 /* Schedule print/PDF export. All scoping lives inside @media print — not
    toggled on-screen at all — so it applies correctly no matter how

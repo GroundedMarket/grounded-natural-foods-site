@@ -401,6 +401,27 @@ const COMPOSITE_COLLECTIONS = [
   "scheduleShifts",
 ];
 let loadedCompositeCollections = new Set();
+// Listeners that errored before delivering a first snapshot. Once a
+// collection has loaded, a later listener error does not hide data that
+// already arrived — the public page only shows a failure message when that
+// section has never successfully loaded (otherwise a dropped connection
+// would wipe deals the customer can already see).
+let failedFirestoreListeners = new Set();
+let authBootstrapFailed = false;
+function publicSectionStatus(names) {
+  if (authBootstrapFailed) return "error";
+  let waiting = false;
+  for (const name of names) {
+    const loaded =
+      loadedRecordCollections.has(name) ||
+      loadedCompositeCollections.has(name) ||
+      loadedCollections.has(name);
+    if (loaded) continue;
+    if (failedFirestoreListeners.has(name)) return "error";
+    waiting = true;
+  }
+  return waiting ? "loading" : "ready";
+}
 function markLoaded(name) {
   loadedCollections.add(name);
 }
@@ -479,10 +500,15 @@ function bindRecordCollection(name, applyArray) {
   fsdb.collection(name).onSnapshot(
     (snap) => {
       applyArray(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      failedFirestoreListeners.delete(name);
       loadedRecordCollections.add(name);
       afterFirestoreUpdate();
     },
-    (err) => console.error(`${name} listener failed:`, err)
+    (err) => {
+      console.error(`${name} listener failed:`, err);
+      failedFirestoreListeners.add(name);
+      afterFirestoreUpdate();
+    }
   );
 }
 // Orders get their own listener (rather than the generic bindRecordCollection
@@ -1217,10 +1243,15 @@ function bindCompositeCollection(name, applyDocs) {
   fsdb.collection(name).onSnapshot(
     (snap) => {
       applyDocs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      failedFirestoreListeners.delete(name);
       loadedCompositeCollections.add(name);
       afterFirestoreUpdate();
     },
-    (err) => console.error(`${name} listener failed:`, err)
+    (err) => {
+      console.error(`${name} listener failed:`, err);
+      failedFirestoreListeners.add(name);
+      afterFirestoreUpdate();
+    }
   );
 }
 // One-time migration: if a record collection's data still lives in its old
@@ -2038,8 +2069,15 @@ function renderDeliGrid(monday) {
   const weekKey = weekKeyOf(monday);
   const menu = weeklyMenu(weekKey);
 
-  const soupRows = ["MON", "TUE", "WED", "THU", "FRI"]
-    .map((label, i) => {
+  const soupStatus = publicSectionStatus(["soups", "soupMenuDays"]);
+  const soupRows =
+    soupStatus === "loading"
+      ? marketLoadingHTML("Loading Soups")
+      : soupStatus === "error"
+      ? marketErrorHTML(
+          "Couldn't load the soup menu. Check your connection and refresh."
+        )
+      : ["MON", "TUE", "WED", "THU", "FRI"].map((label, i) => {
       const date = addDays(monday, i);
       const dateISO = isoDate(date);
       const mk = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
@@ -3215,10 +3253,30 @@ function buildSoupCalHTML(monthKey, showWeekends, showSource) {
   return cells;
 }
 
+// The apple graphic is the letter "o" cut from groundedtitle.png — the
+// store logotype — so the loading state uses the real mark, not a stand-in.
+function marketLoadingHTML(label) {
+  return `<p class="empty-note market-loading" role="status"><img class="market-loading-apple" src="grounded-apple.png" alt="" width="34" height="34"><span>${label}</span></p>`;
+}
+function marketErrorHTML(message) {
+  return `<p class="empty-note" role="status">${message}</p>`;
+}
 function renderProduceList(targetId, editable) {
   const wrap = document.getElementById(targetId);
+  if (!wrap) return;
+  const produceStatus = publicSectionStatus(["produce"]);
+  if (produceStatus === "loading") {
+    wrap.innerHTML = marketLoadingHTML("Loading Deals");
+    return;
+  }
+  if (produceStatus === "error") {
+    wrap.innerHTML = marketErrorHTML(
+      "Couldn't load deals. Check your connection and refresh."
+    );
+    return;
+  }
   if (!db.produceDeals.length) {
-    wrap.innerHTML = '<p class="empty-note">No current deals.</p>';
+    wrap.innerHTML = '<p class="empty-note" role="status">No current deals.</p>';
     return;
   }
   wrap.innerHTML = db.produceDeals
@@ -7591,9 +7649,20 @@ function mcFreezerTileHTML(b) {
 
 /* ---------------- customer-facing public section + ordering ---------------- */
 function renderMeatCheesePublic() {
+  const mcStatus = publicSectionStatus(["meatCheeseItems", "meatCheeseSlots"]);
   MC_CATEGORIES.forEach((c) => {
     const el = document.getElementById(`mc-public-${c.plural}`);
     if (!el) return;
+    if (mcStatus === "loading") {
+      el.innerHTML = marketLoadingHTML("Loading Meats & Cheese");
+      return;
+    }
+    if (mcStatus === "error") {
+      el.innerHTML = marketErrorHTML(
+        "Couldn't load meats and cheese. Check your connection and refresh."
+      );
+      return;
+    }
     const tiles = mcSlotsFor(c.id)
       .map((s) => mcItem(s.itemId))
       .filter((item) => item && item.availableWeight > 0)
@@ -7623,6 +7692,21 @@ function mcPublicTileHTML(item) {
   </div>`;
 }
 function openMeatCheeseOrderPickerModal() {
+  const mcStatus = publicSectionStatus(["meatCheeseItems", "meatCheeseSlots"]);
+  if (mcStatus === "loading") {
+    openModal(`<h3>Order Meat &amp; Cheese</h3>
+      ${marketLoadingHTML("Loading Meats & Cheese")}
+      <div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>`);
+    return;
+  }
+  if (mcStatus === "error") {
+    openModal(`<h3>Order Meat &amp; Cheese</h3>
+      ${marketErrorHTML(
+        "Couldn't load meats and cheese. Check your connection and refresh."
+      )}
+      <div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>`);
+    return;
+  }
   const available = db.meatCheeseItems.filter((i) => i.availableWeight > 0);
   openModal(`<h3>Order Meat &amp; Cheese</h3>
     <div class="search-panel-list" style="max-height:340px">
@@ -11339,12 +11423,16 @@ let bootDone = false;
 fbauth.onAuthStateChanged(async (user) => {
   if (bootDone) return;
   if (!user) {
-    fbauth
-      .signInAnonymously()
-      .catch((err) => console.error("Anonymous sign-in failed:", err));
+    fbauth.signInAnonymously().catch((err) => {
+      console.error("Anonymous sign-in failed:", err);
+      authBootstrapFailed = true;
+      if (!document.getElementById("view-public").classList.contains("hidden"))
+        renderPublic();
+    });
     return; // onAuthStateChanged fires again once anonymous sign-in lands
   }
   bootDone = true;
+  authBootstrapFailed = false;
   const isStaff = await buildSessionFromAuthUser(user).catch(() => false);
   initFirebaseSync();
   if (isStaff) enterPortal();
