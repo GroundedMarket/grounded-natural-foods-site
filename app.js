@@ -1776,6 +1776,36 @@ function reqCoversDate(r, dateISO) {
   const { startDate, endDate } = reqDateRange(r);
   return startDate <= dateISO && dateISO <= endDate;
 }
+// Which time-off requests the portal will show. Documents stay in Firestore.
+//
+// Hidden when:
+//   - Delete wrote `deleted: true`. Master can update a request, but the
+//     security rules do not allow delete, so a hard delete was rejected,
+//     the live listener put the row back, and it looked like nothing
+//     happened. The flag is an update the master is already allowed to make.
+//   - employeeId matches nobody (the account was deleted). Those render
+//     as a blank name ("— —").
+//   - the employee is inactive and has no deactivation date.
+//   - a deactivation date is on file and the request does not end before
+//     that date. Deactivate sets the date to today and takes them off the
+//     schedule from that day on; a future date does the same once it
+//     arrives. Requests that finished earlier stay. Anything that touches
+//     the cutoff day or runs past it is hidden, including requests filed
+//     before they left.
+function timeOffRequestVisible(r) {
+  if (!r || r.deleted) return false;
+  const emp = db.employees.find((e) => e.id === r.employeeId);
+  if (!emp) return false;
+  const cutoff = emp.deactivateDate || "";
+  if (cutoff) {
+    const { endDate } = reqDateRange(r);
+    return !!endDate && endDate < cutoff;
+  }
+  return emp.active !== false;
+}
+function visibleTimeOffRequests() {
+  return db.timeOffRequests.filter(timeOffRequestVisible);
+}
 
 /* Role picker: a select of existing roles plus a "+ Add new role…" option that
    reveals a text field. Used identically on Add Employee and the employee
@@ -8907,7 +8937,7 @@ function openEmployeeDetail(id) {
     1,
     Math.round((Date.now() - new Date(e.createdAt)) / 86400000)
   );
-  const requests = db.timeOffRequests.filter((r) => r.employeeId === id);
+  const requests = visibleTimeOffRequests().filter((r) => r.employeeId === id);
   const daysRequested = requests.length;
   const pct = ((daysRequested / daysSince) * 100).toFixed(1);
   const approved = requests.filter((r) => r.status === "approved").length;
@@ -8960,7 +8990,7 @@ function openEmployeeDetail(id) {
       ${chatCommentsHTML(e)}
     </div>
     <div class="card">
-      <h4>Time Off Requests</h4>
+      <h4>Time Off History</h4>
       ${
         requests.length
           ? requests
@@ -9172,24 +9202,23 @@ function scheduleHTML() {
     let html = `<label class="weekend-toggle"><input type="checkbox" ${
       db.settings.showSunSchedule ? "checked" : ""
     } onchange="db.settings.showSunSchedule=this.checked;renderPortalBody()"> Show SUN (Sundays)</label>`;
-    const upcoming = db.timeOffRequests
-      .filter((r) => reqDateRange(r).endDate >= todayISO())
+    // Only still-unapproved requests live above the schedule. Approving
+    // one takes it off this list; the entry itself stays in Firestore and
+    // shows on that employee's Time Off History.
+    const pendingTimeOff = visibleTimeOffRequests()
+      .filter((r) => r.status === "pending")
       .sort((a, b) =>
         reqDateRange(a).startDate.localeCompare(reqDateRange(b).startDate)
       );
-    const past = db.timeOffRequests
-      .filter((r) => reqDateRange(r).endDate < todayISO())
-      .sort((a, b) =>
-        reqDateRange(b).startDate.localeCompare(reqDateRange(a).startDate)
-      );
     html += `<details ${scheduleDetailsOpenAttr("timeOff", false)} style="margin-top:10px">
       <summary class="section-title" style="cursor:pointer;display:inline-flex" onclick="noteScheduleSectionToggle('timeOff', this.parentElement)">Time Off Requests${
-        upcoming.length
-          ? ` <span class="pill" style="margin-left:8px">${upcoming.length}</span>`
+        pendingTimeOff.length
+          ? ` <span class="pill" style="margin-left:8px">${pendingTimeOff.length}</span>`
           : ""
-      }</summary>`;
-    html += upcoming.length
-      ? upcoming
+      }</summary>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:8px 0">Pending requests only. Approved and denied requests are kept on each employee's page.</p>`;
+    html += pendingTimeOff.length
+      ? pendingTimeOff
           .map((r) => {
             const emp = db.employees.find((e) => e.id === r.employeeId);
             return `<div class="card"><strong>${
@@ -9203,34 +9232,14 @@ function scheduleHTML() {
             : ""
         }
         <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">
-          ${
-            r.status === "pending"
-              ? `<button class="btn small" onclick="respondRequest('${r.id}','approved')">Approve</button><button class="btn small danger" onclick="respondRequest('${r.id}','denied')">Deny</button>`
-              : ""
-          }
+          <button class="btn small" onclick="respondRequest('${r.id}','approved')">Approve</button><button class="btn small danger" onclick="respondRequest('${r.id}','denied')">Deny</button>
           <button class="btn small outline" onclick="editTimeOffRequestFlow('${
             r.id
           }')">Edit</button>
         </div></div>`;
           })
           .join("")
-      : '<p class="empty-note">No upcoming requests.</p>';
-    if (past.length)
-      html += `<details ${scheduleDetailsOpenAttr("timeOffPast", false)}><summary style="cursor:pointer;font-size:13px;color:var(--brown-light)" onclick="noteScheduleSectionToggle('timeOffPast', this.parentElement)">Past requests (${
-        past.length
-      })</summary>${past
-        .map((r) => {
-          const emp = db.employees.find((e) => e.id === r.employeeId);
-          return `<div class="card" style="opacity:.7"><strong>${
-            emp ? emp.name : "—"
-          }</strong> — ${fmtReqDateRange(r)} ${formatTime12hr(
-            r.start
-          )} - ${formatTime12hr(r.end)} — ${r.status}
-        <button class="btn small outline" style="margin-left:8px" onclick="editTimeOffRequestFlow('${
-          r.id
-        }')">Edit</button></div>`;
-        })
-        .join("")}</details>`;
+      : '<p class="empty-note">No pending requests.</p>';
     html += `</details>`;
     html += shiftSwapSectionHTML();
 
@@ -9477,7 +9486,11 @@ function myOpenShiftsHTML(weekKey, monday) {
         const dateISO = isoDate(addDays(monday, dayIdx));
         const alreadyScheduled = !!((db.schedule[weekKey] || {})[myId] || {})[s.dayKey];
         const onTimeOff = db.timeOffRequests.some(
-          (r) => r.employeeId === myId && reqCoversDate(r, dateISO) && r.status !== "denied"
+          (r) =>
+            r.employeeId === myId &&
+            timeOffRequestVisible(r) &&
+            reqCoversDate(r, dateISO) &&
+            r.status !== "denied"
         );
         const myPending = db.shiftSwaps.some(
           (r) =>
@@ -10151,7 +10164,7 @@ function shiftSwapSectionHTML() {
 }
 
 function myTimeOffListHTML(skipHeading) {
-  const mine = db.timeOffRequests.filter(
+  const mine = visibleTimeOffRequests().filter(
     (r) => r.employeeId === session.employeeId
   );
   const upcoming = mine
@@ -10255,7 +10268,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
           return;
         }
         const cellData = (sched[emp.id] || {})[dk];
-        const req = db.timeOffRequests.find((r) => r.employeeId === emp.id && reqCoversDate(r, dateISO) && r.status !== "denied");
+        const req = db.timeOffRequests.find((r) => r.employeeId === emp.id && timeOffRequestVisible(r) && reqCoversDate(r, dateISO) && r.status !== "denied");
         const isReq = !!req;
         const hasShift = !!cellData;
         const label = hasShift ? `${formatTime12hr(cellData.start)} - ${formatTime12hr(cellData.end)}${isReq ? ` <span title="Time off also ${req.status} for part of this day" style="color:var(--terracotta)">•</span>` : ""}` : isReq ? `Off${req.status === "pending" ? " ?" : ""}` : "";
@@ -10602,15 +10615,30 @@ function saveTimeOffRequestEdit(id) {
 }
 function deleteTimeOffRequest(id) {
   if (!confirm("Delete this time off entry? This cannot be undone.")) return;
-  db.timeOffRequests = db.timeOffRequests.filter((x) => x.id !== id);
-  fsdb
-    .collection("timeOffRequests")
-    .doc(id)
-    .delete()
-    .catch((err) => console.error("Delete time off request failed:", err));
+  const r = db.timeOffRequests.find((x) => x.id === id);
+  if (!r) return;
+  // Rules let master update a time-off doc and do not allow delete, for a
+  // request with an employee or without one. .delete() was rejected, the
+  // listener restored the row, and the only trace was a console error.
+  r.deleted = true;
   closeModal();
   if (viewingEmployeeId) openEmployeeDetail(viewingEmployeeId);
   else renderPortalBody();
+  fsdb
+    .collection("timeOffRequests")
+    .doc(id)
+    .update({ deleted: true })
+    .catch((err) => {
+      console.error("Delete time off request failed:", err);
+      const current = db.timeOffRequests.find((x) => x.id === id);
+      if (current) delete current.deleted;
+      alert(
+        "Couldn't delete this time off entry — please try again." +
+          (err && err.message ? " (" + err.message + ")" : "")
+      );
+      if (viewingEmployeeId) openEmployeeDetail(viewingEmployeeId);
+      else renderPortalBody();
+    });
 }
 
 /* ============================================================
