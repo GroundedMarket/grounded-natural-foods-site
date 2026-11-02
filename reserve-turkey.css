@@ -46,7 +46,16 @@ tr:nth-child(even) td{background:#f5efe4}
 .anim{height:200px;margin-top:24px}
 .warn{background:var(--red);color:#fff;border-radius:8px;padding:12px 18px;font-weight:700;text-align:center;margin-top:18px}
 footer{background:var(--brown);color:var(--cream);text-align:center;padding:36px 20px;margin-top:40px;border-top:6px solid var(--tan)}
-footer .f{font-family:"Great Vibes",cursive;font-size:40px;color:#fff}
+/* Same groundedtitle.png the rest of the site uses. It is cherry on a
+   transparent ground, so it disappears on this brown bar. There is no
+   cream logotype in the repo; this filter repaints it cream (#f6f3e8). */
+footer .footer-logo{
+  display:block;
+  height:68px;
+  width:auto;
+  margin:0 auto 10px;
+  filter:brightness(0) invert(96%) sepia(8%) saturate(180%) hue-rotate(8deg);
+}
 footer a{color:#fff}
 .modal{position:fixed;inset:0;background:rgba(30,18,10,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
 .modal.open{display:flex}
@@ -77,4 +86,5 @@ input{width:100%;padding:11px;font:inherit;border:1px solid var(--tan);border-ra
   header{padding:10px 16px}
   header img{height:38px}
   header a{font-size:14px}
+  footer .footer-logo{height:52px}
 }
