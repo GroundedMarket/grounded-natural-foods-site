@@ -140,6 +140,117 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['scheduleSectionOrder', 'chatIcon']);
     }
 
+    // ---- THANKSGIVING TURKEYS ----
+    // Inventory is the public availability list: weight, type, and status
+    // only. It must never carry a customer name or phone.
+    // Reservations hold the name and phone. Visitors may create one for a
+    // weight that is still available, and may not read any reservation.
+    // Master, and employees whose role contains "management", run the
+    // Turkeys tab: list reservations, un-reserve, mark picked up, and
+    // add/edit/remove weights. No email or text is sent from here.
+    function isManagement() {
+      return signedIn()
+        && request.auth.token.role == 'employee'
+        && request.auth.token.employeeId is string
+        && exists(/databases/$(database)/documents/employees/$(request.auth.token.employeeId))
+        && get(/databases/$(database)/documents/employees/$(request.auth.token.employeeId)).data.role.matches('(?i).*management.*');
+    }
+    function canManageTurkeys() {
+      return isMaster() || isManagement();
+    }
+    function turkeyWeightOk(weight) {
+      return weight is string && weight.matches('^\\d{1,2}(\\.\\d{1,2})?$');
+    }
+    function turkeyTypeOk(type) {
+      return type == 'organic' || type == 'freeRange';
+    }
+
+    match /turkeyInventory/{id} {
+      allow get, list: if signedIn();
+      allow create: if canManageTurkeys()
+        && turkeyTypeOk(request.resource.data.type)
+        && turkeyWeightOk(request.resource.data.weight)
+        && request.resource.data.status in ['available', 'reserved', 'pickedUp']
+        && request.resource.data.keys().hasOnly([
+          'type', 'weight', 'status', 'sort', 'reservationId', 'reservedAt'
+        ])
+        && !request.resource.data.keys().hasAny(['name', 'phone']);
+      allow update: if canManageTurkeys()
+        && turkeyTypeOk(request.resource.data.type)
+        && turkeyWeightOk(request.resource.data.weight)
+        && request.resource.data.status in ['available', 'reserved', 'pickedUp']
+        && !request.resource.data.keys().hasAny(['name', 'phone']);
+      // A shopper can only claim a weight that is still available, and only
+      // by stamping status / reservationId / reservedAt. They cannot put it
+      // back or attach a name.
+      allow update: if signedIn()
+        && resource.data.status == 'available'
+        && request.resource.data.status == 'reserved'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'reservationId', 'reservedAt'
+        ])
+        && request.resource.data.reservationId is string
+        && request.resource.data.reservationId.size() > 0
+        && request.resource.data.reservedAt == request.time
+        && !request.resource.data.keys().hasAny(['name', 'phone']);
+      allow delete: if canManageTurkeys();
+    }
+
+    match /turkeyReservations/{id} {
+      allow get, list: if canManageTurkeys();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'inventoryId', 'type', 'weight', 'name', 'phone', 'pickupDate', 'createdAt', 'status'
+        ])
+        && request.resource.data.keys().hasAll([
+          'inventoryId', 'type', 'weight', 'name', 'phone', 'createdAt', 'status'
+        ])
+        && request.resource.data.status == 'reserved'
+        && request.resource.data.inventoryId is string
+        && turkeyTypeOk(request.resource.data.type)
+        && turkeyWeightOk(request.resource.data.weight)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() >= 10
+        && request.resource.data.phone.size() <= 40
+        && request.resource.data.createdAt == request.time
+        && (
+          !request.resource.data.keys().hasAny(['pickupDate'])
+          || request.resource.data.pickupDate == null
+          || (
+            request.resource.data.pickupDate is string
+            && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+            && request.resource.data.pickupDate <= '2026-12-31'
+          )
+        )
+        && exists(/databases/$(database)/documents/turkeyInventory/$(request.resource.data.inventoryId))
+        && get(/databases/$(database)/documents/turkeyInventory/$(request.resource.data.inventoryId)).data.status == 'available'
+        && get(/databases/$(database)/documents/turkeyInventory/$(request.resource.data.inventoryId)).data.type == request.resource.data.type
+        && get(/databases/$(database)/documents/turkeyInventory/$(request.resource.data.inventoryId)).data.weight == request.resource.data.weight;
+      // Staff seed for weights that were already spoken for before launch.
+      allow create: if canManageTurkeys()
+        && request.resource.data.keys().hasOnly([
+          'inventoryId', 'type', 'weight', 'name', 'phone', 'pickupDate', 'createdAt', 'status', 'seeded'
+        ])
+        && request.resource.data.status in ['reserved', 'pickedUp']
+        && request.resource.data.seeded == true
+        && turkeyTypeOk(request.resource.data.type)
+        && turkeyWeightOk(request.resource.data.weight)
+        && request.resource.data.name is string
+        && request.resource.data.phone is string
+        && !request.resource.data.keys().hasAny(['email']);
+      allow update: if canManageTurkeys()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'type', 'weight'
+        ])
+        && request.resource.data.status in ['reserved', 'pickedUp', 'cancelled']
+        && turkeyTypeOk(request.resource.data.type)
+        && turkeyWeightOk(request.resource.data.weight);
+      allow delete: if canManageTurkeys();
+    }
+
     // Anything not listed: denied.
     match /{document=**}         { allow read, write: if false; }
   }

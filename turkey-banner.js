@@ -5,10 +5,11 @@
 
    TAKE DOWN: set TURKEY_BANNER_ENABLED to false, or delete this file,
    turkey-banner.css, assets/turkey-banner.webp, reserve-turkey.html,
+   reserve-turkey.css, reserve-turkey.js, turkey-catalog.js, turkey-portal.js,
    and the TURKEY BANNER block in index.html.
 
    SWAP THE RESERVATION URL: the href on #turkey-banner in index.html.
-   It currently points at the placeholder page reserve-turkey.html.
+   It points at reserve-turkey.html.
 */
 var TURKEY_BANNER_ENABLED = true;
 var HEADLINE_SVG = `

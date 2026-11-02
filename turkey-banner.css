@@ -203,51 +203,12 @@
   }
 }
 
-/* Placeholder reservation page (reserve-turkey.html). */
-.turkey-reserve-body{
-  margin:0;
-  min-height:100vh;
-  background:
-    radial-gradient(120% 70% at 50% 0%, transparent 55%, rgba(120,80,30,.14) 100%),
-    #f4ecd8;
-  color:#2b2216;
-  font-family:"Lora", Georgia, serif;
-}
-.turkey-reserve{
-  max-width:36rem;
-  margin:0 auto;
-  padding:72px 24px 80px;
-}
-.turkey-reserve-kicker{
-  margin:0;
-  font-family:"Fraunces", Georgia, serif;
-  font-size:13px;
-  letter-spacing:.18em;
-  text-transform:uppercase;
-  color:#8c6a40;
-}
-.turkey-reserve h1{
-  margin:10px 0 14px;
-  font-family:"Fraunces", Georgia, serif;
-  font-weight:560;
-  font-size:clamp(36px, 6vw, 52px);
-  line-height:1.05;
-  color:#a8000f;
-}
-.turkey-reserve p{
-  margin:0;
-  font-size:18px;
-  line-height:1.55;
-}
-.turkey-reserve-back{
-  display:inline-block;
-  margin-top:26px;
-  color:#a8000f;
-  font-family:"Fraunces", Georgia, serif;
-  font-size:18px;
-}
-.turkey-reserve-back:hover{ color:#74000a; }
-.turkey-reserve-back:focus-visible{
-  outline:3px solid #a8000f;
-  outline-offset:3px;
-}
+/* Staff Login → Turkeys. Names and phones stay in this tab. */
+.turkey-admin .turkey-note{margin:0 0 16px;color:var(--ink-soft);font-size:14.5px}
+.turkey-admin h3{margin:22px 0 8px;font-family:var(--font-display);font-size:22px}
+.turkey-admin table{width:100%;border-collapse:collapse;background:var(--paper);margin-bottom:8px}
+.turkey-admin th,.turkey-admin td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+.turkey-admin th{font-family:var(--font-mono);font-weight:400;font-size:12px;letter-spacing:.04em}
+.turkey-actions{display:flex;flex-wrap:wrap;gap:6px}
+.turkey-weights{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:720px){.turkey-weights{grid-template-columns:1fr}}

@@ -313,6 +313,10 @@ const db = {
   meatCheeseItems: [],
   meatCheeseSlots: [],
   meatCheeseBlocks: [],
+  // Thanksgiving turkeys. Inventory is safe to show customers (no names).
+  // Reservations are staff-only and are never emailed or texted.
+  turkeyInventory: [],
+  turkeyReservations: [],
 };
 
 /* ============================================================
@@ -1736,6 +1740,12 @@ function afterFirestoreUpdate() {
       if (el) el.textContent = emp.name;
     }
   }
+  if (session && !session.isMaster && document.getElementById("portal-tabs")) {
+    const showTurkeys = canManageTurkeys();
+    const hasTurkeys = !!document.querySelector('.portal-tab[data-tab="Turkeys"]');
+    if (showTurkeys !== hasTurkeys) renderPortalTabs();
+  }
+  ensureTurkeyPortal();
   if (!document.getElementById("view-public").classList.contains("hidden")) {
     renderPublic();
   }
@@ -3509,6 +3519,7 @@ function enterPortal() {
   renderPortalTabs();
   updatePortalStickyState();
   renderPortalBody();
+  ensureTurkeyPortal();
   showView("view-portal");
 }
 
@@ -4025,6 +4036,7 @@ function renderPortalTabs() {
       "Employees",
       "Expirations",
       "Orders",
+      "Turkeys",
       "Deli Menu",
       "Meats & Cheese",
       "Coffee Bar",
@@ -4042,6 +4054,7 @@ function renderPortalTabs() {
       tabs.splice(3, 0, "Soup Menu");
       tabs.splice(4, 0, "Meats & Cheese");
     }
+    if (canManageTurkeys()) tabs.push("Turkeys");
   }
   document.getElementById("portal-tabs").innerHTML = tabs
     .map(
@@ -4194,6 +4207,9 @@ function renderPortalBody() {
     case "Publishing":
       el.innerHTML = publishingHTML();
       renderPublishingPoster();
+      break;
+    case "Turkeys":
+      el.innerHTML = turkeysTabHTML();
       break;
     case "Chat":
       el.innerHTML = chatHTML();
