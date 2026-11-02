@@ -1,0 +1,80 @@
+/* Reservation page. Follows the approved Thanksgiving mockup.
+   Palette: cream #ece9df, tan #c49a6c, cherry #a8000f. */
+:root{--cream:#ece9df;--tan:#c49a6c;--red:#a8000f;--brown:#3b2a1e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--cream);color:var(--brown);font-family:Lora,Georgia,serif;font-size:17px;line-height:1.6}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;background:var(--cream);border-bottom:4px solid var(--tan)}
+header img{height:48px;width:auto}
+header a{color:var(--red);font-weight:700;text-decoration:none}
+.hero{position:relative;height:440px;background:url(assets/turkey-banner.webp) center/cover;display:flex;align-items:center;justify-content:center;text-align:center}
+.hero:before{content:"";position:absolute;inset:0;background:linear-gradient(rgba(30,18,10,.35),rgba(30,18,10,.6))}
+.hero h1{position:relative;color:#fff;font-family:"Great Vibes",cursive;font-weight:400;font-size:84px;line-height:1.05;margin:0 20px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
+h2{font-family:"Great Vibes",cursive;font-weight:400;color:var(--red);font-size:56px;text-align:center;margin:0 0 10px;line-height:1.1}
+h3{margin:0 0 8px;font-size:22px}
+section{max-width:1040px;margin:0 auto;padding:56px 24px}
+.divider{height:2px;background:repeating-linear-gradient(90deg,var(--tan) 0 14px,transparent 14px 22px);max-width:1040px;margin:0 auto;opacity:.7}
+.intro{text-align:center;font-size:20px;max-width:760px;margin:0 auto}
+.note{display:inline-block;margin-top:14px;background:#fff8ee;border:1px solid var(--tan);border-radius:30px;padding:6px 20px;font-weight:600}
+.badges{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:28px}
+.ph{border:2px dashed #9b8466;border-radius:8px;color:#7a6650;font-size:13px;text-align:center;display:flex;align-items:center;justify-content:center;padding:10px;background:rgba(255,255,255,.35)}
+.badges .ph{width:150px;height:100px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:24px}
+.card{background:#fffaf2;border:1px solid var(--tan);border-top:8px solid var(--tan);border-radius:10px;padding:28px;box-shadow:0 4px 14px rgba(59,42,30,.08)}
+.card.org{border-top-color:var(--red)}
+.price{font-size:30px;font-weight:700;color:var(--red)}.price small{font-size:16px;color:var(--brown);font-weight:400}
+.card ul{padding-left:0;list-style:none}.card li{padding:4px 0 4px 28px;position:relative}
+.card li:before{content:"✓";position:absolute;left:0;color:var(--red);font-weight:700}
+.diet{background:var(--cream);border-radius:8px;padding:14px 16px;font-size:15px}
+.avail{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:20px}
+.col{background:#fffaf2;border-radius:10px;padding:24px;border:1px solid var(--tan)}
+.col h3{text-align:center;color:var(--red);border-bottom:2px solid var(--tan);padding-bottom:8px;margin-bottom:16px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.tile{font-family:Lora,serif;font-size:18px;font-weight:700;color:var(--brown);background:var(--cream);border:2px solid var(--tan);border-radius:8px;padding:14px 6px;cursor:pointer;transition:.15s}
+.tile:hover{background:var(--red);color:#fff;border-color:var(--red)}
+.tile.res,.tile.res:hover{background:#ddd9d0;color:#9a948a;border-color:#c8c3b8;cursor:not-allowed}
+.tile.res span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.tile s{text-decoration:line-through}
+.small{font-size:14px;text-align:center;font-style:italic;margin-top:16px}
+.size{display:flex;gap:30px;align-items:center;justify-content:center;background:#fffaf2;border-radius:12px;padding:28px;border:1px solid var(--tan);max-width:760px;margin:16px auto 0}
+.size p{font-size:20px;margin:0}
+table{width:100%;border-collapse:collapse;background:#fffaf2;border-radius:10px;overflow:hidden}
+th{background:var(--red);color:#fff;text-align:left;padding:10px 16px}
+td{padding:9px 16px;border-bottom:1px solid #e2d6c4}
+tr:nth-child(even) td{background:#f5efe4}
+.two{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;margin-top:20px;align-items:start}
+.temp{text-align:center;font-size:24px;font-weight:700;margin-bottom:6px}
+.anim{height:200px;margin-top:24px}
+.warn{background:var(--red);color:#fff;border-radius:8px;padding:12px 18px;font-weight:700;text-align:center;margin-top:18px}
+footer{background:var(--brown);color:var(--cream);text-align:center;padding:36px 20px;margin-top:40px;border-top:6px solid var(--tan)}
+footer .f{font-family:"Great Vibes",cursive;font-size:40px;color:#fff}
+footer a{color:#fff}
+.modal{position:fixed;inset:0;background:rgba(30,18,10,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
+.modal.open{display:flex}
+.box{background:var(--cream);border-radius:12px;max-width:440px;width:100%;padding:30px;border-top:8px solid var(--red);position:relative}
+.box h2{font-size:44px}
+.chosen{text-align:center;background:#fffaf2;border:1px solid var(--tan);border-radius:8px;padding:10px;font-weight:700;font-size:19px;margin-bottom:16px}
+label{display:block;font-weight:600;margin:12px 0 4px}
+label em{color:var(--red);font-style:normal}
+label i{font-weight:400;font-size:14px}
+input{width:100%;padding:11px;font:inherit;border:1px solid var(--tan);border-radius:6px;background:#fff}
+.hint{font-size:14px;font-style:italic;margin-top:4px}
+.form-error{color:var(--red);font-weight:700;min-height:1.2em;margin:8px 0 0}
+.btn{width:100%;margin-top:20px;background:var(--red);color:#fff;border:0;border-radius:8px;padding:14px;font:700 18px Lora,serif;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:wait}
+.x{position:absolute;top:8px;right:14px;background:none;border:0;font-size:28px;cursor:pointer;color:var(--brown)}
+.wobble{transform-origin:50% 95%;animation:wobble 1.6s ease-in-out infinite}
+@keyframes wobble{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+@media (prefers-reduced-motion:reduce){.wobble{animation:none}}
+@media (max-width:720px){
+  .hero{height:300px}
+  .hero h1{font-size:54px}
+  h2{font-size:44px}
+  .cards,.avail,.two{grid-template-columns:1fr}
+  .size{flex-direction:column;text-align:center}
+  section{padding:40px 16px}
+  .tiles{grid-template-columns:repeat(3,1fr)}
+  .tile{font-size:16px}
+  header{padding:10px 16px}
+  header img{height:38px}
+  header a{font-size:14px}
+}

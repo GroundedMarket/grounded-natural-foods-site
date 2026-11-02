@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="styles.css?v=31">
 <link rel="stylesheet" href="ledger.css?v=5">
 <link rel="stylesheet" href="newspaper.css?v=7">
+<link rel="stylesheet" href="turkey-banner.css?v=1">
 <!-- Firebase: live shared data store (Firestore) + photo uploads (Storage) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -74,6 +75,25 @@
       </svg>
     </div>
   </header>
+
+  <!--
+    TURKEY BANNER (temporary). Seasonal Thanksgiving reservation promo.
+    Take down: set TURKEY_BANNER_ENABLED to false in turkey-banner.js,
+    or delete this block plus turkey-banner.css, turkey-banner.js,
+    assets/turkey-banner.webp, reserve-turkey.html, reserve-turkey.css,
+    reserve-turkey.js, turkey-catalog.js, and turkey-portal.js.
+    Reservation page: reserve-turkey.html (href below).
+  -->
+  <a id="turkey-banner" class="turkey-banner" href="reserve-turkey.html">
+    <span class="turkey-banner-artwrap">
+      <img class="turkey-banner-art" src="assets/turkey-banner.webp" alt="" width="1280" height="720" fetchpriority="high" decoding="async">
+    </span>
+    <span class="turkey-banner-copy">
+      <span class="turkey-sr">Reserve Your Thanksgiving Turkey</span>
+      <span class="turkey-cta">Reserve Now</span>
+    </span>
+  </a>
+  <script src="turkey-banner.js?v=1"></script>
 
   <!-- "Front page" layer: masthead (above) + the lead story below, torn away on
        scroll to reveal the Weekly Deli section underneath. Populated by
@@ -244,7 +264,9 @@
 
 <script src="produce-icons.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="app.js?v=70"></script>
+<script src="turkey-catalog.js?v=1"></script>
+<script src="turkey-portal.js?v=1"></script>
+<script src="app.js?v=71"></script>
 <script src="ledger-motion.js?v=2"></script>
 <script src="newspaper.js?v=1"></script>
 </body>
