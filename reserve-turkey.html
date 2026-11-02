@@ -15,14 +15,8 @@
   <a href="tel:8124824060">(812) 482-4060</a>
 </header>
 <div class="hero"><h1>Reserve Your Thanksgiving Turkey</h1></div>
-<section>
-  <p class="intro">Mary's Turkeys, raised by the Pitman family in California's San Joaquin Valley since 1954. Three generations, with plenty of room to roam.<br><span class="note">Our turkeys are flash frozen.</span></p>
-  <div class="badges">
-    <div class="ph">Mary's Free Range<br>logo placeholder</div>
-    <div class="ph">Mary's Organic<br>logo placeholder</div>
-    <div class="ph">USDA Organic<br>logo placeholder</div>
-    <div class="ph">Non-GMO Project Verified<br>logo placeholder</div>
-  </div>
+<section class="marys-mark">
+  <img class="marys-logo" src="assets/marys-turkeys-logo.png" alt="Mary's Turkey" width="840" height="648">
 </section>
 <div class="divider"></div>
 <section>
@@ -102,7 +96,126 @@
       </ul>
     </div>
   </div>
-  <div class="ph anim">Animation: turkey goes into oven, comes out golden (coming soon)</div>
+  <div class="oven-slot">
+  <!-- Grounded Natural Foods: oven animation (self-contained, no JS) -->
+  <figure class="gnf-oven" role="img" aria-label="Animation: a raw turkey goes into a cream oven and comes out golden-brown roasted">
+  <style>
+  .gnf-oven{margin:0 auto;max-width:560px;width:100%;text-align:center;font-family:inherit}
+  .gnf-oven svg{width:100%;height:auto;display:block}
+  .gnf-oven figcaption{margin-top:.4em;color:#5a3a22;font-weight:700;letter-spacing:.02em}
+  .gnf-oven .a{animation-duration:8s;animation-iteration-count:infinite;animation-timing-function:ease-in-out}
+  .gnf-oven .door{transform-box:fill-box;transform-origin:50% 100%;animation-name:gnfDoor}
+  .gnf-oven .pan{animation-name:gnfPan}
+  .gnf-oven .raw{animation-name:gnfRaw;animation-timing-function:steps(1,end)}
+  .gnf-oven .roast{animation-name:gnfRoast;animation-timing-function:steps(1,end)}
+  .gnf-oven .glow{animation-name:gnfGlow}
+  .gnf-oven .heat path{animation:gnfHeat .8s ease-in-out infinite alternate}
+  .gnf-oven .heat path:nth-child(2){animation-delay:.25s}.gnf-oven .heat path:nth-child(3){animation-delay:.5s}
+  .gnf-oven .hand{transform-box:view-box;transform-origin:470px 62px;animation-name:gnfHand;animation-timing-function:linear}
+  .gnf-oven .timer{transform-box:fill-box;transform-origin:50% 100%;animation-name:gnfRing}
+  .gnf-oven .ding{animation-name:gnfDing}
+  .gnf-oven .steam{animation-name:gnfSteam}
+  .gnf-oven .spark{animation-name:gnfSpark}
+  .gnf-oven .tw{transform-box:fill-box;transform-origin:center;animation:gnfTw 1s ease-in-out infinite alternate}
+  @keyframes gnfDoor{0%{transform:scaleY(1)}10%,24%{transform:scaleY(.08)}31%,64%{transform:scaleY(1)}71%,86%{transform:scaleY(.08)}93%,100%{transform:scaleY(1)}}
+  @keyframes gnfPan{0%,10%{transform:translateX(0);opacity:1}24%,72%{transform:translateX(322px);opacity:1}86%{transform:translateX(0);opacity:1}93%{opacity:1}96%{opacity:0}100%{opacity:1}}
+  @keyframes gnfRaw{0%{opacity:1}48%{opacity:0}96%{opacity:1}}
+  @keyframes gnfRoast{0%{opacity:0}48%{opacity:1}96%{opacity:0}}
+  @keyframes gnfGlow{0%,30%{opacity:0}36%,58%{opacity:1}66%,100%{opacity:0}}
+  @keyframes gnfHand{0%,31%{transform:rotate(0)}62%,100%{transform:rotate(360deg)}}
+  @keyframes gnfRing{0%,61%{transform:rotate(0)}62.5%{transform:rotate(-12deg)}64%{transform:rotate(12deg)}65.5%{transform:rotate(-8deg)}67%{transform:rotate(6deg)}68.5%,100%{transform:rotate(0)}}
+  @keyframes gnfDing{0%,61%{opacity:0;transform:scale(.6)}63%{opacity:1;transform:scale(1.1)}70%{opacity:1;transform:scale(1)}74%,100%{opacity:0}}
+  @keyframes gnfSteam{0%,66%{opacity:0;transform:translateY(10px)}72%{opacity:.9;transform:translateY(-6px)}84%,100%{opacity:0;transform:translateY(-34px)}}
+  @keyframes gnfSpark{0%,76%{opacity:0}82%,93%{opacity:1}97%,100%{opacity:0}}
+  @keyframes gnfHeat{from{transform:translateY(3px)}to{transform:translateY(-4px)}}
+  @keyframes gnfTw{from{transform:scale(.5) rotate(0)}to{transform:scale(1.15) rotate(45deg)}}
+  @media (prefers-reduced-motion:reduce){
+   .gnf-oven .a,.gnf-oven .heat path,.gnf-oven .tw{animation:none!important}
+   .gnf-oven .pan{transform:translateX(0)}.gnf-oven .raw{opacity:0}.gnf-oven .roast,.gnf-oven .spark{opacity:1}
+   .gnf-oven .door{transform:none}.gnf-oven .glow,.gnf-oven .ding,.gnf-oven .steam{opacity:0}}
+  </style>
+  <svg viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+   <symbol id="gnfStar" viewBox="-10 -10 20 20"><path d="M0-10 2.5-2.5 10 0 2.5 2.5 0 10-2.5 2.5-10 0-2.5-2.5Z" fill="#f2b632"/></symbol>
+   <radialGradient id="gnfG" cx="50%" cy="60%" r="60%"><stop offset="0" stop-color="#ffcf5a"/><stop offset="1" stop-color="#e0661b"/></radialGradient>
+  </defs>
+  <!-- wall + counter -->
+  <rect width="560" height="340" fill="#ece9df"/>
+  <rect x="0" y="290" width="560" height="50" fill="#c49a6c"/><rect x="0" y="290" width="560" height="8" fill="#a97d50"/>
+  <path d="M0 312h560M0 328h560" stroke="#b08458" stroke-width="2"/>
+  <!-- cutting board block for the pan -->
+  <rect x="18" y="258" width="130" height="32" rx="6" fill="#8b5a36"/><rect x="18" y="258" width="130" height="7" rx="3" fill="#a06a40"/>
+  <!-- oven body -->
+  <rect x="296" y="96" width="232" height="194" rx="30" fill="#f7f3e8" stroke="#5a3a22" stroke-width="5"/>
+  <rect x="296" y="96" width="232" height="40" rx="20" fill="#e6dfcc" stroke="#5a3a22" stroke-width="5"/>
+  <circle cx="330" cy="116" r="11" fill="#a8000f" stroke="#5a3a22" stroke-width="3"/><rect x="328" y="106" width="4" height="9" rx="2" fill="#fff"/>
+  <circle cx="362" cy="116" r="6" fill="#c49a6c" stroke="#5a3a22" stroke-width="2"/><circle cx="384" cy="116" r="6" fill="#c49a6c" stroke="#5a3a22" stroke-width="2"/>
+  <rect x="306" y="286" width="20" height="8" rx="3" fill="#5a3a22"/><rect x="498" y="286" width="20" height="8" rx="3" fill="#5a3a22"/>
+  <!-- cavity -->
+  <rect x="322" y="150" width="180" height="114" rx="12" fill="#3b2416"/>
+  <rect class="glow a" x="322" y="150" width="180" height="114" rx="12" fill="url(#gnfG)" opacity="0"/>
+  <path d="M330 250h164" stroke="#7a5236" stroke-width="3"/>
+  <!-- pan + turkey (moves) -->
+  <g class="pan a">
+   <g class="raw a">
+    <path d="M52 238q-14-8-8-18q8-6 16 6" fill="#f6dccb" stroke="#c99f86" stroke-width="2"/>
+    <path d="M116 238q14-8 8-18q-8-6-16 6" fill="#f6dccb" stroke="#c99f86" stroke-width="2"/>
+    <ellipse cx="84" cy="232" rx="38" ry="25" fill="#f8e2d2" stroke="#c99f86" stroke-width="2.5"/>
+    <circle cx="70" cy="224" r="1.6" fill="#d8b7a2"/><circle cx="86" cy="218" r="1.6" fill="#d8b7a2"/><circle cx="98" cy="228" r="1.6" fill="#d8b7a2"/><circle cx="78" cy="236" r="1.6" fill="#d8b7a2"/>
+    <circle cx="40" cy="214" r="6" fill="#fff" stroke="#c99f86" stroke-width="2"/><circle cx="128" cy="214" r="6" fill="#fff" stroke="#c99f86" stroke-width="2"/>
+   </g>
+   <g class="roast a" opacity="0">
+    <path d="M52 238q-14-8-8-18q8-6 16 6" fill="#a8581f" stroke="#6b3412" stroke-width="2"/>
+    <path d="M116 238q14-8 8-18q-8-6-16 6" fill="#a8581f" stroke="#6b3412" stroke-width="2"/>
+    <ellipse cx="84" cy="232" rx="38" ry="25" fill="#b8661f" stroke="#6b3412" stroke-width="2.5"/>
+    <ellipse cx="74" cy="222" rx="16" ry="7" fill="#e0902b" opacity=".8"/>
+    <circle cx="40" cy="214" r="6" fill="#fff" stroke="#6b3412" stroke-width="2"/><circle cx="128" cy="214" r="6" fill="#fff" stroke="#6b3412" stroke-width="2"/>
+    <path d="M60 248h4M78 251h5M98 248h4" stroke="#4f9a3a" stroke-width="4" stroke-linecap="round"/>
+   </g>
+   <path d="M34 240h100l-8 18H42Z" fill="#8f9aa3" stroke="#4d5960" stroke-width="2.5"/>
+   <path d="M30 242h8M130 242h8" stroke="#4d5960" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <!-- heat lines (shown when door closed & glowing) -->
+  <g class="glow a" opacity="0"><g class="heat" stroke="#ffe7a6" stroke-width="4" fill="none" stroke-linecap="round">
+   <path d="M372 222q-6-8 0-16t0-16"/><path d="M412 226q-6-8 0-16t0-16"/><path d="M452 222q-6-8 0-16t0-16"/></g></g>
+  <!-- door (drops down) -->
+  <g class="door a">
+   <rect x="316" y="146" width="192" height="122" rx="14" fill="#f7f3e8" stroke="#5a3a22" stroke-width="5"/>
+   <rect x="336" y="170" width="152" height="74" rx="10" fill="#3b2416" fill-opacity=".9" stroke="#5a3a22" stroke-width="3"/>
+   <rect class="glow a" x="336" y="170" width="152" height="74" rx="10" fill="url(#gnfG)" opacity="0"/>
+   <g class="glow a" opacity="0"><g class="heat" stroke="#fff3cf" stroke-width="3.5" fill="none" stroke-linecap="round">
+    <path d="M380 234q-5-7 0-14t0-14"/><path d="M412 236q-5-7 0-14t0-14"/><path d="M444 234q-5-7 0-14t0-14"/></g></g>
+   <rect x="350" y="153" width="124" height="9" rx="4.5" fill="#c49a6c" stroke="#5a3a22" stroke-width="2.5"/>
+  </g>
+  <!-- steam -->
+  <g class="steam a" opacity="0" fill="#fff">
+   <circle cx="360" cy="150" r="12"/><circle cx="376" cy="140" r="15"/><circle cx="420" cy="146" r="13"/><circle cx="440" cy="134" r="16"/><circle cx="470" cy="148" r="11"/>
+  </g>
+  <!-- timer -->
+  <g class="timer a">
+   <rect x="462" y="34" width="16" height="8" rx="3" fill="#5a3a22"/>
+   <circle cx="470" cy="62" r="22" fill="#a8000f" stroke="#5a3a22" stroke-width="4"/>
+   <circle cx="470" cy="62" r="14" fill="#fff"/>
+   <path d="M470 50v3M482 62h-3M470 74v-3M458 62h3" stroke="#5a3a22" stroke-width="2"/>
+   <line class="hand a" x1="470" y1="62" x2="470" y2="52" stroke="#a8000f" stroke-width="3" stroke-linecap="round"/>
+   <circle cx="470" cy="62" r="2.5" fill="#5a3a22"/>
+  </g>
+  <g class="ding a" style="transform-box:fill-box;transform-origin:center">
+   <path d="M436 40l-12-8M434 60h-14M500 40l12-8M502 60h14" stroke="#e0902b" stroke-width="4" stroke-linecap="round"/>
+   <use href="#gnfStar" x="498" y="14" width="20" height="20"/><use href="#gnfStar" x="424" y="12" width="14" height="14"/>
+   <text x="470" y="20" text-anchor="middle" font-size="16" font-weight="800" fill="#a8000f" font-family="Georgia,serif">DING!</text>
+  </g>
+  <!-- sparkles over roasted turkey -->
+  <g class="spark a" opacity="0">
+   <g class="tw"><use href="#gnfStar" x="26" y="176" width="22" height="22"/></g>
+   <g class="tw" style="animation-delay:.3s"><use href="#gnfStar" x="116" y="168" width="18" height="18"/></g>
+   <g class="tw" style="animation-delay:.6s"><use href="#gnfStar" x="76" y="186" width="14" height="14"/></g>
+   <g class="tw" style="animation-delay:.45s"><use href="#gnfStar" x="148" y="200" width="16" height="16"/></g>
+  </g>
+  </svg>
+  <figcaption>Preheat to 325°F</figcaption>
+  </figure>
+  </div>
 </section>
 <div class="divider"></div>
 <section>
