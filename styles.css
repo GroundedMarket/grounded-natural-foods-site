@@ -368,6 +368,18 @@ details[open] > summary::after{ transform:rotate(90deg); }
 .sched-cell.unavail-heads-up{ background:#FBEAEA; }
 .sched-unavail-flag{ font-size:9px; color:var(--red-flag); display:flex; align-items:center; gap:2px; margin-top:2px; line-height:11px; }
 .sched-unavail-text{ font-size:9px; }
+.sched-name.open-available-name{ background:transparent; justify-content:center; }
+.sched-open-tag{ font-family:var(--font-hand, "Caveat", cursive); font-size:18px; line-height:1; color:var(--terracotta); transform:rotate(-2deg); }
+.sched-cell.open-available{ background:var(--parchment); border:1.5px dashed var(--terracotta); color:var(--terracotta); cursor:pointer; }
+.sched-cell.open-available.empty{ background:transparent; border:none; cursor:default; }
+.sched-cell.open-available:hover{ background:var(--cream); }
+.sched-cell.open-available.empty:hover{ background:transparent; }
+.open-shift-time{ font-family:var(--font-mono); font-size:11px; color:var(--ink); }
+.open-shift-role{ font-family:var(--font-hand, "Caveat", cursive); font-size:14px; line-height:1; color:var(--brown); }
+.calloff-box{ margin-top:14px; padding-top:12px; border-top:1.5px dashed var(--terracotta); }
+.calloff-kicker{ font-family:var(--font-hand, "Caveat", cursive); font-size:26px; line-height:1; color:var(--terracotta); margin:0 0 6px; }
+.calloff-help{ font-size:12.5px; color:var(--ink-soft); margin:0; }
+.absence-reason{ font-family:var(--font-hand, "Caveat", cursive); font-size:20px; line-height:1; color:var(--terracotta); margin-left:6px; display:inline-block; transform:rotate(-1deg); }
 
 /* time off list */
 .timeoff-list-item{ padding:10px 14px; border-radius:10px; background:var(--paper); border:1px solid var(--line); margin-bottom:8px; font-size:13.5px; }

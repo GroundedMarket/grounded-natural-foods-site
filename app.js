@@ -1783,6 +1783,11 @@ function reqCoversDate(r, dateISO) {
 //     security rules do not allow delete, so a hard delete was rejected,
 //     the live listener put the row back, and it looked like nothing
 //     happened. The flag is an update the master is already allowed to make.
+//   - kind is "absence". Those are Sick / Call Off records (see
+//     confirmCallOff), kept in this same collection so no new Firestore
+//     collection is required. They render on the employee page's
+//     Attendance / Call-off History, not in any time-off list, and they
+//     must not paint a day as "Off" on the schedule.
 //   - employeeId matches nobody (the account was deleted). Those render
 //     as a blank name ("— —").
 //   - the employee is inactive and has no deactivation date.
@@ -1792,8 +1797,16 @@ function reqCoversDate(r, dateISO) {
 //     arrives. Requests that finished earlier stay. Anything that touches
 //     the cutoff day or runs past it is hidden, including requests filed
 //     before they left.
+function isAbsenceRecord(r) {
+  return !!(r && r.kind === "absence");
+}
+function absenceReasonLabel(reason) {
+  if (reason === "sick") return "Sick";
+  if (reason === "calloff") return "Call Off";
+  return "Call Off";
+}
 function timeOffRequestVisible(r) {
-  if (!r || r.deleted) return false;
+  if (!r || r.deleted || isAbsenceRecord(r)) return false;
   const emp = db.employees.find((e) => e.id === r.employeeId);
   if (!emp) return false;
   const cutoff = emp.deactivateDate || "";
@@ -1805,6 +1818,78 @@ function timeOffRequestVisible(r) {
 }
 function visibleTimeOffRequests() {
   return db.timeOffRequests.filter(timeOffRequestVisible);
+}
+// Sick / Call Off entries for one employee, newest shift date first.
+// Shown on the employee page even after the person is inactive — this is
+// a record of what happened, not a request still in play. Deleted rows
+// stay in Firestore (same `deleted` flag as time off) and drop out here.
+function visibleAbsencesForEmployee(empId) {
+  return db.timeOffRequests
+    .filter(
+      (r) => r && !r.deleted && isAbsenceRecord(r) && r.employeeId === empId
+    )
+    .sort((a, b) => {
+      const byDate = (b.startDate || "").localeCompare(a.startDate || "");
+      if (byDate) return byDate;
+      return (b.createdAt || "").localeCompare(a.createdAt || "");
+    });
+}
+function absenceHistoryHTML(empId) {
+  const rows = visibleAbsencesForEmployee(empId);
+  if (!rows.length)
+    return '<p class="empty-note">No call-offs recorded.</p>';
+  return rows
+    .map((r) => {
+      const past = (r.startDate || "") < todayISO();
+      const note = (r.comment || "").trim();
+      return `<div class="timeoff-list-item" style="opacity:${past ? 0.55 : 1}">
+        ${escHtml(r.startDate || "—")} ${formatTime12hr(r.start)} - ${formatTime12hr(
+          r.end
+        )} <span class="absence-reason">${absenceReasonLabel(r.reason)}</span>
+        ${
+          note
+            ? `<br><span style="font-size:12.5px;color:var(--ink-soft)">Note: ${escHtml(
+                note
+              )}</span>`
+            : ""
+        }
+        <br><span style="font-size:12.5px;color:var(--ink-soft)">Recorded by ${escHtml(
+          r.recordedByName || "Master"
+        )}</span>
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">
+          <button class="btn small outline" onclick="deleteAbsenceRecord('${
+            r.id
+          }')">Remove</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+function deleteAbsenceRecord(id) {
+  if (
+    !confirm(
+      "Remove this call-off from their history? This does not put them back on the shift."
+    )
+  )
+    return;
+  const r = db.timeOffRequests.find((x) => x.id === id);
+  if (!r || !isAbsenceRecord(r)) return;
+  r.deleted = true;
+  if (viewingEmployeeId) openEmployeeDetail(viewingEmployeeId);
+  fsdb
+    .collection("timeOffRequests")
+    .doc(id)
+    .update({ deleted: true })
+    .catch((err) => {
+      console.error("Remove call-off failed:", err);
+      const current = db.timeOffRequests.find((x) => x.id === id);
+      if (current) delete current.deleted;
+      alert(
+        "Couldn't remove this call-off — please try again." +
+          (err && err.message ? " (" + err.message + ")" : "")
+      );
+      if (viewingEmployeeId) openEmployeeDetail(viewingEmployeeId);
+    });
 }
 
 /* Role picker: a select of existing roles plus a "+ Add new role…" option that
@@ -9019,6 +9104,11 @@ function openEmployeeDetail(id) {
               .join("")
           : '<p class="empty-note">No requests yet.</p>'
       }
+    </div>
+    <div class="card">
+      <h4>Attendance / Call-off History</h4>
+      <p style="font-size:12.5px;color:var(--ink-soft)">Sick and Call Off entries recorded from the schedule. Removing one only clears this history — it does not put the shift back.</p>
+      ${absenceHistoryHTML(id)}
     </div>`;
   scheduleSave();
 }
@@ -9298,7 +9388,7 @@ function scheduleHTML() {
         <button class="btn small outline" onclick="printSchedule()">🖨️ Print Schedule</button>
       </div>
       ${weekBoxHTML(weekKey, monday)}`,
-    openShifts: () => myOpenShiftsHTML(weekKey, monday),
+    openShifts: () => myOpenShiftsHTML(weekKey),
   };
   const order = getScheduleSectionOrder();
   return order
@@ -9316,9 +9406,14 @@ function scheduleHTML() {
      - An open shift "slot" is just a normal scheduleShifts doc, stored
        under a reserved pseudo employee id ("OPEN" + random) instead of a
        real one — master already has unrestricted read/write on this
-       collection, and it's invisible to every other part of the app
-       because nothing else ever iterates schedule data except by a real,
-       known employee id.
+       collection. Every other feature walks the schedule by a real
+       employee id, so a slot never appears as someone's shift. The Open
+       Shifts lists and the schedule grid's Available row are the only
+       readers that look these ids up on purpose. Calling someone off
+       (confirmCallOff) posts the vacated hours as one of these slots, so
+       pickup is the same path as "+ Add Open Shift". The absence itself
+       is a timeOffRequests doc with kind "absence" (master can already
+       create those) — not a new collection.
      - A request to pick one up is an ordinary shiftSwaps "transfer" doc
        (requesterId = the real employee, targetId = the pseudo slot id,
        targetShiftRef = {weekKey,dayKey}) submitted straight into
@@ -9473,40 +9568,15 @@ function deleteOpenShift(weekKey, pseudoId, dayKey) {
 // a normal shift-swap "transfer" request pointed at the pseudo slot, which
 // then shows up in the existing Shift Swap Requests list below, waiting on
 // the master exactly like any other request.
-function myOpenShiftsHTML(weekKey, monday) {
+function myOpenShiftsHTML(weekKey) {
   if (!isWeekPublished(weekKey)) return "";
   const shifts = openShiftsForWeek(weekKey);
   if (!shifts.length) return "";
-  const myId = session.employeeId;
   return `<h2 class="section-title" style="margin-top:22px">Open Shifts</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:10px">Request one below — the master account gives final approval, same as a shift swap.</p>
     ${shifts
       .map((s) => {
-        const dayIdx = ALL_DAYS.indexOf(s.dayKey);
-        const dateISO = isoDate(addDays(monday, dayIdx));
-        const alreadyScheduled = !!((db.schedule[weekKey] || {})[myId] || {})[s.dayKey];
-        const onTimeOff = db.timeOffRequests.some(
-          (r) =>
-            r.employeeId === myId &&
-            timeOffRequestVisible(r) &&
-            reqCoversDate(r, dateISO) &&
-            r.status !== "denied"
-        );
-        const myPending = db.shiftSwaps.some(
-          (r) =>
-            r.requesterId === myId &&
-            r.targetId === s.pseudoId &&
-            r.targetShiftRef &&
-            r.targetShiftRef.weekKey === weekKey &&
-            r.targetShiftRef.dayKey === s.dayKey &&
-            r.status === "pending_master"
-        );
-        let actionHTML;
-        if (myPending) actionHTML = `<span class="pill">Request Pending</span>`;
-        else if (alreadyScheduled) actionHTML = `<span class="pill inactive">Already scheduled that day</span>`;
-        else if (onTimeOff) actionHTML = `<span class="pill inactive">You have time off that day</span>`;
-        else
-          actionHTML = `<button class="btn small" onclick="requestOpenShift('${weekKey}','${s.pseudoId}','${s.dayKey}')">Request This Shift</button>`;
+        const actionHTML = openShiftPickupActionHTML(weekKey, s);
         return `<div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
             <strong>${s.dayKey} ${formatTime12hr(s.start)} - ${formatTime12hr(
@@ -9525,8 +9595,41 @@ function myOpenShiftsHTML(weekKey, monday) {
       })
       .join("")}`;
 }
+// Same eligibility the Open Shifts list uses, so a click on the schedule's
+// Available row offers the identical pickup — not a second mechanism.
+function openShiftPickupActionHTML(weekKey, s) {
+  const myId = session.employeeId;
+  if (!myId) return "";
+  const monday = mondayFromWeekKey(weekKey);
+  const dayIdx = ALL_DAYS.indexOf(s.dayKey);
+  const dateISO = isoDate(addDays(monday, dayIdx));
+  const alreadyScheduled = !!((db.schedule[weekKey] || {})[myId] || {})[s.dayKey];
+  const onTimeOff = db.timeOffRequests.some(
+    (r) =>
+      r.employeeId === myId &&
+      timeOffRequestVisible(r) &&
+      reqCoversDate(r, dateISO) &&
+      r.status !== "denied"
+  );
+  const myPending = db.shiftSwaps.some(
+    (r) =>
+      r.requesterId === myId &&
+      r.targetId === s.pseudoId &&
+      r.targetShiftRef &&
+      r.targetShiftRef.weekKey === weekKey &&
+      r.targetShiftRef.dayKey === s.dayKey &&
+      r.status === "pending_master"
+  );
+  if (myPending) return `<span class="pill">Request Pending</span>`;
+  if (alreadyScheduled)
+    return `<span class="pill inactive">Already scheduled that day</span>`;
+  if (onTimeOff)
+    return `<span class="pill inactive">You have time off that day</span>`;
+  return `<button class="btn small" onclick="requestOpenShift('${weekKey}','${s.pseudoId}','${s.dayKey}')">Request This Shift</button>`;
+}
 function requestOpenShift(weekKey, pseudoId, dayKey) {
   if (!confirm("Request this shift? The master account will need to approve it before it's on your schedule.")) return;
+  closeModal();
   const req = {
     kind: "transfer",
     requesterId: session.employeeId,
@@ -10287,6 +10390,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
       });
     });
   });
+  rows += availableShiftsRowHTML(weekKey, days, hideHours);
   const gridClass = days.length === 7 ? "sched-grid with-sun" : "sched-grid";
   return `<div class="week-box"><div class="week-label">${fmtWeekRange(monday)}</div>
     <div class="${gridClass}">
@@ -10332,6 +10436,18 @@ function editCell(weekKey, empId, dayKey, dateISO) {
     <div class="field"><label>Note (optional)</label><textarea id="cell-notes" placeholder="e.g. Covering for Dana, closing shift…">${
       current && current.notes ? escHtmlAttr(current.notes) : ""
     }</textarea></div>
+    ${
+      current
+        ? `<div class="calloff-box">
+      <p class="calloff-kicker">Called in?</p>
+      <p class="calloff-help">Sick or Call Off records it on their page, takes them off this shift, and posts these hours for someone else to pick up.</p>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">
+        <button class="btn small outline" onclick="openCallOffConfirm('${weekKey}','${empId}','${dayKey}','${dateISO}','sick')">Sick</button>
+        <button class="btn small outline" onclick="openCallOffConfirm('${weekKey}','${empId}','${dayKey}','${dateISO}','calloff')">Call Off</button>
+      </div>
+    </div>`
+        : ""
+    }
     <div class="modal-actions">
       ${
         current
@@ -10366,6 +10482,183 @@ function clearCell(weekKey, empId, dayKey) {
     .doc(`${weekKey}__${empId}__${dayKey}`)
     .delete()
     .catch((err) => console.error("Clear shift failed:", err));
+  closeModal();
+  renderPortalBody();
+}
+// Bottom row of the weekly grid. Only drawn when this week actually has
+// open slots, and only for days the grid is currently showing (Sunday
+// stays hidden until Show SUN is on, same as everyone else's row).
+function availableShiftsRowHTML(weekKey, days, hideHours) {
+  const open = openShiftsForWeek(weekKey).filter((s) => days.includes(s.dayKey));
+  if (!open.length) return "";
+  let html = `<div class="sched-role-row">Open for pickup</div>`;
+  html += `<div class="sched-name open-available-name"><span class="sched-open-tag">Available</span></div>`;
+  days.forEach((dk) => {
+    const dayShifts = open.filter((s) => s.dayKey === dk);
+    if (!dayShifts.length) {
+      html += `<div class="sched-cell open-available empty"></div>`;
+      return;
+    }
+    const click = hideHours
+      ? ""
+      : `onclick="openAvailableDay('${weekKey}','${dk}')"`;
+    const chips = dayShifts
+      .map((s) => {
+        const role = s.role
+          ? `<span class="open-shift-role">${escHtml(s.role)}</span>`
+          : "";
+        return `<span class="open-shift-time">${formatTime12hr(
+          s.start
+        )} - ${formatTime12hr(s.end)}</span>${role}`;
+      })
+      .join("");
+    html += `<div class="sched-cell open-available" ${click}><span class="sched-open-tag">open</span>${chips}</div>`;
+  });
+  return html;
+}
+function openAvailableDay(weekKey, dayKey) {
+  const shifts = openShiftsForWeek(weekKey).filter((s) => s.dayKey === dayKey);
+  if (!shifts.length) {
+    closeModal();
+    renderPortalBody();
+    return;
+  }
+  const monday = mondayFromWeekKey(weekKey);
+  const dateISO = isoDate(addDays(monday, ALL_DAYS.indexOf(dayKey)));
+  const body = shifts
+    .map((s) => {
+      let action = "";
+      if (session.isMaster) {
+        action = `<button class="btn small danger" onclick="deleteListedOpenShift('${weekKey}','${s.pseudoId}','${s.dayKey}')">Delete</button>`;
+      } else if (session.employeeId) {
+        action = openShiftPickupActionHTML(weekKey, s);
+      }
+      return `<div class="card" style="margin-bottom:8px">
+        <strong>${formatTime12hr(s.start)} - ${formatTime12hr(s.end)}${
+          s.role ? ` · ${escHtml(s.role)}` : ""
+        }</strong>
+        ${
+          s.notes
+            ? `<p style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 0">${escHtml(
+                s.notes
+              )}</p>`
+            : ""
+        }
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">${action}</div>
+      </div>`;
+    })
+    .join("");
+  openModal(
+    `<h3>Available — ${dayKey} ${dateISO}</h3>${body}<div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>`
+  );
+}
+function deleteListedOpenShift(weekKey, pseudoId, dayKey) {
+  deleteOpenShift(weekKey, pseudoId, dayKey);
+  const still = openShiftsForWeek(weekKey).some(
+    (s) => s.pseudoId === pseudoId && s.dayKey === dayKey
+  );
+  if (still) return;
+  const left = openShiftsForWeek(weekKey).filter((s) => s.dayKey === dayKey);
+  if (left.length) openAvailableDay(weekKey, dayKey);
+  else closeModal();
+}
+// One confirm does all three: write the absence on the employee's record,
+// take them off the shift, and post those hours as an open slot.
+function openCallOffConfirm(weekKey, empId, dayKey, dateISO, reason) {
+  if (reason !== "sick" && reason !== "calloff") return;
+  if (!session || !session.isMaster) return;
+  const emp = db.employees.find((e) => e.id === empId);
+  const shift = (weekSchedule(weekKey)[empId] || {})[dayKey];
+  if (!emp || !shift) {
+    alert("That shift is no longer on the schedule.");
+    closeModal();
+    renderPortalBody();
+    return;
+  }
+  const label = absenceReasonLabel(reason);
+  const conflict = checkKeyholderConflict(weekKey, dayKey, empId);
+  openModal(`<h3>${label} — ${escHtml(emp.name)}</h3>
+    <p>${dayKey} ${dateISO}<br><strong>${formatTime12hr(
+      shift.start
+    )} - ${formatTime12hr(shift.end)}</strong></p>
+    <p style="font-size:13.5px;color:var(--ink-soft)">Confirming records this on ${escHtml(
+      emp.name
+    )}'s page, removes them from the shift, and posts the same hours as available for pickup.</p>
+    ${
+      conflict
+        ? `<p style="font-size:13.5px;color:var(--red-flag)">${escHtml(
+            conflict
+          )} You can still call them off.</p>`
+        : ""
+    }
+    <div class="field"><label>Note (optional)</label><textarea id="calloff-note" placeholder="e.g. Called at 7:40, fever"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn outline" onclick="editCell('${weekKey}','${empId}','${dayKey}','${dateISO}')">Back</button>
+      <button class="btn" onclick="confirmCallOff('${weekKey}','${empId}','${dayKey}','${dateISO}','${reason}')">Confirm ${label}</button>
+    </div>`);
+}
+function confirmCallOff(weekKey, empId, dayKey, dateISO, reason) {
+  if (reason !== "sick" && reason !== "calloff") return;
+  if (!session || !session.isMaster) return;
+  const emp = db.employees.find((e) => e.id === empId);
+  const sched = weekSchedule(weekKey);
+  const shift = (sched[empId] || {})[dayKey];
+  if (!emp || !shift) {
+    alert("That shift is no longer on the schedule.");
+    closeModal();
+    renderPortalBody();
+    return;
+  }
+  const noteEl = document.getElementById("calloff-note");
+  const note = noteEl ? noteEl.value.trim() : "";
+  const pseudoId = newId(OPEN_SHIFT_PREFIX);
+  const openShift = {
+    start: shift.start,
+    end: shift.end,
+    notes: shift.notes || "",
+    role: emp.role || "",
+  };
+  const keptShift = { ...shift };
+  const absenceId = newId("ab");
+  const absence = {
+    kind: "absence",
+    employeeId: empId,
+    startDate: dateISO,
+    endDate: dateISO,
+    start: shift.start,
+    end: shift.end,
+    reason,
+    comment: note,
+    recordedByName: session.name || "Master",
+    createdAt: new Date().toISOString(),
+    status: "recorded",
+    responseComment: "",
+  };
+  delete sched[empId][dayKey];
+  sched[pseudoId] = { [dayKey]: openShift };
+  db.timeOffRequests.push({ id: absenceId, ...absence });
+  const batch = fsdb.batch();
+  batch.delete(
+    fsdb.collection("scheduleShifts").doc(`${weekKey}__${empId}__${dayKey}`)
+  );
+  batch.set(
+    fsdb.collection("scheduleShifts").doc(`${weekKey}__${pseudoId}__${dayKey}`),
+    openShift
+  );
+  batch.set(fsdb.collection("timeOffRequests").doc(absenceId), absence);
+  batch.commit().catch((err) => {
+    console.error("Call-off failed:", err);
+    const current = weekSchedule(weekKey);
+    if (!current[empId]) current[empId] = {};
+    current[empId][dayKey] = keptShift;
+    if (current[pseudoId]) delete current[pseudoId][dayKey];
+    db.timeOffRequests = db.timeOffRequests.filter((r) => r.id !== absenceId);
+    alert(
+      "Couldn't record this call-off — please try again." +
+        (err && err.message ? " (" + err.message + ")" : "")
+    );
+    renderPortalBody();
+  });
   closeModal();
   renderPortalBody();
 }
