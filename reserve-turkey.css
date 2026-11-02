@@ -6,7 +6,7 @@ body{margin:0;background:var(--cream);color:var(--brown);font-family:Lora,Georgi
 header{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;background:var(--cream);border-bottom:4px solid var(--tan)}
 header img{height:48px;width:auto}
 header a{color:var(--red);font-weight:700;text-decoration:none}
-.hero{position:relative;height:440px;background:url(assets/turkey-banner.webp) center/cover;display:flex;align-items:center;justify-content:center;text-align:center}
+.hero{position:relative;height:300px;background:url(assets/turkey-banner.webp) center 50% / cover no-repeat;display:flex;align-items:center;justify-content:center;text-align:center}
 .hero:before{content:"";position:absolute;inset:0;background:linear-gradient(rgba(30,18,10,.35),rgba(30,18,10,.6))}
 .hero h1{position:relative;color:#fff;font-family:"Great Vibes",cursive;font-weight:400;font-size:84px;line-height:1.05;margin:0 20px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
 h2{font-family:"Great Vibes",cursive;font-weight:400;color:var(--red);font-size:56px;text-align:center;margin:0 0 10px;line-height:1.1}
@@ -75,7 +75,7 @@ input{width:100%;padding:11px;font:inherit;border:1px solid var(--tan);border-ra
 @keyframes wobble{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
 @media (prefers-reduced-motion:reduce){.wobble{animation:none}}
 @media (max-width:720px){
-  .hero{height:300px}
+  .hero{height:220px;background-position:center 50%}
   .hero h1{font-size:54px}
   h2{font-size:44px}
   .cards,.avail,.two{grid-template-columns:1fr}
