@@ -1,0 +1,253 @@
+/* ==========================================================
+   Thanksgiving turkey reservation banner (temporary).
+
+   Take down: set TURKEY_BANNER_ENABLED to false in turkey-banner.js,
+   or delete this file, turkey-banner.js, assets/turkey-banner.webp,
+   reserve-turkey.html, and the TURKEY BANNER block in index.html.
+
+   Swap the reservation URL on the href of #turkey-banner in index.html.
+   Palette: cream #ece9df, tan #c49a6c, cherry #a8000f.
+   ========================================================== */
+
+.turkey-banner{
+  --turkey-cherry:#a8000f;
+  --turkey-cream:#ece9df;
+  --turkey-tan:#c49a6c;
+  --turkey-paper:#f8e7c9;
+  --turkey-draw:420ms;
+  --turkey-fill:320ms;
+  --turkey-stagger:110ms;
+  position:relative;
+  display:block;
+  margin:0 -84px 22px;
+  aspect-ratio:1280 / 720;
+  overflow:hidden;
+  text-decoration:none;
+  color:var(--turkey-cream);
+  background:var(--turkey-paper);
+  border-radius:4px;
+  box-shadow:
+    0 0 0 1px rgba(196,154,108,.7),
+    0 16px 28px -18px rgba(60,35,10,.55);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  container-type:inline-size;
+}
+@media (max-width:900px){
+  .turkey-banner{ margin:0 -14px 20px -58px; }
+}
+.turkey-banner:focus-visible{
+  outline:3px solid var(--turkey-cherry);
+  outline-offset:3px;
+}
+.turkey-banner-artwrap{
+  position:absolute;
+  inset:0;
+  display:block;
+  overflow:hidden;
+}
+.turkey-banner-art{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  max-width:none;
+  object-fit:cover;
+  object-position:center;
+}
+.turkey-banner-copy{
+  position:absolute;
+  z-index:1;
+  left:3.6%;
+  top:50%;
+  transform:translateY(-50%);
+  width:30.5%;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+}
+.turkey-script{
+  display:block;
+  width:100%;
+  height:auto;
+  overflow:visible;
+}
+.turkey-stroke{
+  fill:transparent;
+  stroke:transparent;
+  stroke-width:2.4;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-dasharray:1;
+  stroke-dashoffset:1;
+  fill-rule:nonzero;
+}
+.turkey-banner.is-drawing .turkey-stroke{
+  stroke:var(--turkey-cherry);
+  animation-name:turkey-draw, turkey-fill;
+  animation-duration:var(--turkey-draw), var(--turkey-fill);
+  animation-timing-function:ease-in-out, ease;
+  animation-fill-mode:forwards, forwards;
+  animation-iteration-count:1, 1;
+}
+.turkey-banner.is-settled .turkey-stroke{
+  fill:var(--turkey-cherry);
+  stroke:none;
+  stroke-dashoffset:0;
+  animation:none;
+}
+@keyframes turkey-draw{
+  to{ stroke-dashoffset:0; }
+}
+@keyframes turkey-fill{
+  0%{ fill:transparent; }
+  100%{ fill:#a8000f; stroke-width:0; }
+}
+.turkey-cta{
+  display:inline-block;
+  margin-top:.35em;
+  padding:.55em 1.2em;
+  border-radius:999px;
+  background:var(--turkey-cherry);
+  color:var(--turkey-cream);
+  font-family:"Lora", Georgia, serif;
+  font-size:clamp(15px, 2.05cqi, 22px);
+  font-weight:500;
+  line-height:1;
+  letter-spacing:.01em;
+  opacity:0;
+  box-shadow:0 8px 16px -12px rgba(90,10,14,.85);
+}
+.turkey-banner.is-drawing .turkey-cta{
+  animation:turkey-btn-in 680ms cubic-bezier(.18, 1.35, .36, 1) forwards;
+  animation-delay:var(--turkey-btn-delay, 3.2s);
+  animation-iteration-count:1;
+}
+.turkey-banner.is-settled .turkey-cta{
+  opacity:1;
+  animation:none;
+  transform:none;
+}
+@keyframes turkey-btn-in{
+  0%{ opacity:0; transform:translateY(12px) scale(.92); }
+  58%{ opacity:1; transform:translateY(-4px) scale(1.04); }
+  100%{ opacity:1; transform:translateY(0) scale(1); }
+}
+.turkey-banner:hover .turkey-cta,
+.turkey-banner:focus-visible .turkey-cta{
+  background:#8e000c;
+}
+.turkey-banner:active .turkey-cta{
+  background:#74000a;
+}
+.turkey-fallback,
+.turkey-sr{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
+}
+@media (max-width:720px){
+  .turkey-banner{
+    aspect-ratio:auto;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    background:#f8e7c9;
+  }
+  .turkey-banner-artwrap{
+    position:relative;
+    order:2;
+    inset:auto;
+    height:240px;
+  }
+  .turkey-banner-art{
+    width:148%;
+    height:148%;
+    left:auto;
+    right:0;
+    top:-8%;
+    object-position:82% 46%;
+  }
+  .turkey-banner-copy{
+    position:relative;
+    order:1;
+    left:auto;
+    top:auto;
+    transform:none;
+    width:auto;
+    padding:20px 22px 6px;
+  }
+  .turkey-script{ width:min(100%, 430px); }
+  .turkey-cta{
+    font-size:17px;
+    margin:2px 0 14px;
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  .turkey-banner .turkey-stroke{
+    animation:none !important;
+    fill:#a8000f !important;
+    stroke:none !important;
+    stroke-dashoffset:0 !important;
+  }
+  .turkey-banner .turkey-cta{
+    animation:none !important;
+    opacity:1 !important;
+    transform:none !important;
+  }
+}
+
+/* Placeholder reservation page (reserve-turkey.html). */
+.turkey-reserve-body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(120% 70% at 50% 0%, transparent 55%, rgba(120,80,30,.14) 100%),
+    #f4ecd8;
+  color:#2b2216;
+  font-family:"Lora", Georgia, serif;
+}
+.turkey-reserve{
+  max-width:36rem;
+  margin:0 auto;
+  padding:72px 24px 80px;
+}
+.turkey-reserve-kicker{
+  margin:0;
+  font-family:"Fraunces", Georgia, serif;
+  font-size:13px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:#8c6a40;
+}
+.turkey-reserve h1{
+  margin:10px 0 14px;
+  font-family:"Fraunces", Georgia, serif;
+  font-weight:560;
+  font-size:clamp(36px, 6vw, 52px);
+  line-height:1.05;
+  color:#a8000f;
+}
+.turkey-reserve p{
+  margin:0;
+  font-size:18px;
+  line-height:1.55;
+}
+.turkey-reserve-back{
+  display:inline-block;
+  margin-top:26px;
+  color:#a8000f;
+  font-family:"Fraunces", Georgia, serif;
+  font-size:18px;
+}
+.turkey-reserve-back:hover{ color:#74000a; }
+.turkey-reserve-back:focus-visible{
+  outline:3px solid #a8000f;
+  outline-offset:3px;
+}
