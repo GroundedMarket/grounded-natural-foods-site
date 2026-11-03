@@ -85,46 +85,75 @@ function turkeyReservationRows() {
   return source.filter((row) => row.status === "reserved" || row.status === "pickedUp");
 }
 
+let turkeyReservationQuery = "";
+
+function turkeyReservationMatches(row) {
+  const query = turkeyReservationQuery.trim().toLowerCase();
+  if (!query) return true;
+  const name = String(row.name || "").toLowerCase();
+  const phone = String(row.phone || "").toLowerCase();
+  const phoneDigits = phone.replace(/\D/g, "");
+  const queryDigits = query.replace(/\D/g, "");
+  return name.includes(query) || phone.includes(query) || (queryDigits.length > 0 && phoneDigits.includes(queryDigits));
+}
+
+function setTurkeyReservationQuery(value) {
+  turkeyReservationQuery = value;
+  const scrollY = window.scrollY;
+  renderPortalBody();
+  const input = document.getElementById("turkey-res-search");
+  if (input) {
+    input.focus();
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }
+  window.scrollTo(0, scrollY);
+}
+
+function turkeyReservationTable(rows, showPickedUp) {
+  if (!rows.length) {
+    return turkeyReservationQuery.trim()
+      ? '<p class="empty-note">No matching reservations.</p>'
+      : '<p class="empty-note">None yet.</p>';
+  }
+  const live = turkeyPortalLive();
+  return `<table><thead><tr><th>Name</th><th>Phone</th><th>Weight</th><th>Type</th><th>Pickup</th><th>Reserved</th><th></th></tr></thead><tbody>
+    ${rows
+      .map((row) => {
+        const action = live && showPickedUp
+          ? '<button class="btn small" type="button" onclick="markTurkeyPickedUp(\'' + row.id + '\')">Picked Up</button>'
+          : "—";
+        return `<tr>
+          <td>${escHtml(row.name || "—")}</td>
+          <td>${escHtml(row.phone || "—")}</td>
+          <td>${escHtml(row.weight)} lb</td>
+          <td>${escHtml(TURKEY_TYPES[row.type] ? TURKEY_TYPES[row.type].label : row.type)}</td>
+          <td>${escHtml(row.pickupDate || "—")}</td>
+          <td>${escHtml(turkeyWhen(row.createdAt))}</td>
+          <td>${action}</td>
+        </tr>`;
+      })
+      .join("")}
+  </tbody></table>`;
+}
+
 function turkeysTabHTML() {
   const live = turkeyPortalLive();
   const birds = turkeyRows().sort(turkeyCompare);
-  const reservations = turkeyReservationRows().sort((a, b) => {
-    const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
-    const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
-    return bTime - aTime;
-  });
+  const reservations = turkeyReservationRows();
   const banner = live
     ? ""
     : turkeyInventoryError
       ? '<p class="turkey-note">Firestore rules for turkeys are not active yet, so this list is only the starting case. Deploy the rules, then open this tab again to post it. Nothing here is emailed or texted.</p>'
       : '<p class="turkey-note">Loading turkeys… Nothing is emailed or texted when someone reserves.</p>';
-  const reservationTable = reservations.length
-    ? `<table><thead><tr><th>Name</th><th>Phone</th><th>Weight</th><th>Type</th><th>Pickup</th><th>Reserved</th><th></th></tr></thead><tbody>
-      ${reservations
-        .map((row) => {
-          const actions = live
-            ? `<div class="turkey-actions">
-                ${
-                  row.status === "reserved"
-                    ? `<button class="btn small outline" type="button" onclick="markTurkeyPickedUp('${row.id}')">Mark picked up</button>`
-                    : ""
-                }
-                <button class="btn small outline" type="button" onclick="unreserveTurkey('${row.id}')">Un-reserve</button>
-              </div>`
-            : "—";
-          return `<tr>
-            <td>${escHtml(row.name || "—")}</td>
-            <td>${escHtml(row.phone || "—")}</td>
-            <td>${escHtml(row.weight)} lb</td>
-            <td>${escHtml(TURKEY_TYPES[row.type] ? TURKEY_TYPES[row.type].label : row.type)}</td>
-            <td>${escHtml(row.pickupDate || "—")}</td>
-            <td>${escHtml(turkeyWhen(row.createdAt))}${row.status === "pickedUp" ? "<br>Picked up" : ""}</td>
-            <td>${actions}</td>
-          </tr>`;
-        })
-        .join("")}
-    </tbody></table>`
-    : '<p class="empty-note">No reservations yet.</p>';
+  const byTime = (a, b) => {
+    const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+    const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+    return bTime - aTime;
+  };
+  const matched = reservations.filter(turkeyReservationMatches);
+  const openReservations = matched.filter((row) => row.status === "reserved").sort(byTime);
+  const pickedUpReservations = matched.filter((row) => row.status === "pickedUp").sort(byTime);
   const weightColumn = (type) => {
     const list = birds.filter((bird) => bird.type === type);
     return `<div><h3>${TURKEY_TYPES[type].label} · ${TURKEY_TYPES[type].price}/lb</h3>
@@ -133,12 +162,15 @@ function turkeysTabHTML() {
           ? `<table><thead><tr><th>Weight</th><th>Status</th><th></th></tr></thead><tbody>
             ${list
               .map((bird) => {
-                const actions = live
-                  ? `<div class="turkey-actions">
+                const held = bird.status === "reserved" || bird.status === "pickedUp" || bird.reservationId;
+                const actions = !live
+                  ? "—"
+                  : held
+                    ? "On record"
+                    : `<div class="turkey-actions">
                       <button class="btn small outline" type="button" onclick="editTurkeyWeight('${bird.id}')">Edit</button>
                       <button class="btn small outline" type="button" onclick="removeTurkeyWeight('${bird.id}')">Remove</button>
-                    </div>`
-                  : "—";
+                    </div>`;
                 return `<tr><td>${escHtml(bird.weight)} lb</td><td>${escHtml(bird.status || "available")}</td><td>${actions}</td></tr>`;
               })
               .join("")}
@@ -151,9 +183,13 @@ function turkeysTabHTML() {
       live ? '<button class="btn" type="button" onclick="addTurkeyWeight()">+ Add weight</button>' : ""
     }</h2>
     ${banner}
-    ${live ? '<p class="turkey-note">Reservations stay in this tab. Customers never see a name or phone, and the store does not email or text them.</p>' : ""}
-    <h3>Reservations</h3>
-    ${reservationTable}
+    ${live ? '<p class="turkey-note">Picked-up reservations stay here with the customer’s name, phone, type, and weight. Nothing is emailed or texted, and customers never see a name or phone.</p>' : ""}
+    <label class="turkey-note" for="turkey-res-search">Search reservations</label>
+    <input id="turkey-res-search" type="search" placeholder="Customer name or phone" value="${escHtmlAttr(turkeyReservationQuery)}" oninput="setTurkeyReservationQuery(this.value)">
+    <h3>Waiting for pickup</h3>
+    ${turkeyReservationTable(openReservations, true)}
+    <h3>Picked up</h3>
+    ${turkeyReservationTable(pickedUpReservations, false)}
     <h3>Weights</h3>
     <div class="turkey-weights">${weightColumn("organic")}${weightColumn("freeRange")}</div>
   </div>`;
@@ -269,36 +305,16 @@ async function saveTurkeyWeightEdit(id) {
 async function removeTurkeyWeight(id) {
   const bird = db.turkeyInventory.find((item) => item.id === id);
   if (!bird || !turkeyPortalLive()) return;
+  if (bird.status === "reserved" || bird.status === "pickedUp" || bird.reservationId) {
+    alert("This weight has a reservation. That record stays. Only an available weight with no reservation can be removed.");
+    return;
+  }
   if (!confirm("Remove the " + bird.weight + " lb " + (TURKEY_TYPES[bird.type] ? TURKEY_TYPES[bird.type].label : "") + " turkey?")) return;
   try {
-    if (bird.reservationId) {
-      await fsdb.collection("turkeyReservations").doc(bird.reservationId).update({ status: "cancelled" });
-    }
     await fsdb.collection("turkeyInventory").doc(id).delete();
   } catch (err) {
     console.error(err);
     alert("Couldn't remove that weight.");
-  }
-}
-
-async function unreserveTurkey(reservationId) {
-  const row =
-    db.turkeyReservations.find((item) => item.id === reservationId) ||
-    turkeyReservationRows().find((item) => item.id === reservationId);
-  if (!row || !turkeyPortalLive()) return;
-  if (!confirm("Make " + row.weight + " lb available again?")) return;
-  try {
-    await fsdb.collection("turkeyReservations").doc(reservationId).update({ status: "cancelled" });
-    if (row.inventoryId) {
-      await fsdb.collection("turkeyInventory").doc(row.inventoryId).update({
-        status: "available",
-        reservationId: null,
-        reservedAt: null,
-      });
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Couldn't un-reserve that turkey.");
   }
 }
 

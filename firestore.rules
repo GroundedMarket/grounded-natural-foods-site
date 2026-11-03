@@ -179,7 +179,9 @@ service cloud.firestore {
         && turkeyTypeOk(request.resource.data.type)
         && turkeyWeightOk(request.resource.data.weight)
         && request.resource.data.status in ['available', 'reserved', 'pickedUp']
-        && !request.resource.data.keys().hasAny(['name', 'phone']);
+        && !request.resource.data.keys().hasAny(['name', 'phone'])
+        && !(resource.data.status in ['reserved', 'pickedUp'] && request.resource.data.status == 'available')
+        && !(resource.data.status == 'pickedUp' && request.resource.data.status != 'pickedUp');
       // A shopper can only claim a weight that is still available, and only
       // by stamping status / reservationId / reservedAt. They cannot put it
       // back or attach a name.
@@ -193,7 +195,7 @@ service cloud.firestore {
         && request.resource.data.reservationId.size() > 0
         && request.resource.data.reservedAt == request.time
         && !request.resource.data.keys().hasAny(['name', 'phone']);
-      allow delete: if canManageTurkeys();
+      allow delete: if canManageTurkeys() && resource.data.status == 'available';
     }
 
     match /turkeyReservations/{id} {
@@ -245,10 +247,13 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'type', 'weight'
         ])
-        && request.resource.data.status in ['reserved', 'pickedUp', 'cancelled']
+        && request.resource.data.status in ['reserved', 'pickedUp']
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.phone == resource.data.phone
+        && (resource.data.status != 'pickedUp' || request.resource.data.status == 'pickedUp')
         && turkeyTypeOk(request.resource.data.type)
         && turkeyWeightOk(request.resource.data.weight);
-      allow delete: if canManageTurkeys();
+      allow delete: if false;
     }
 
     // Anything not listed: denied.
