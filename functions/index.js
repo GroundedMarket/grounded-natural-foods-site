@@ -19,35 +19,80 @@ function requireMaster(request){
   }
 }
 
+function authErrorCode(err) {
+  return (err && (err.code || (err.errorInfo && err.errorInfo.code))) || '';
+}
+
+// Create a Firebase Auth login, stamp employee claims, and store authUid.
+// If that email is already registered, reuse the user (set password + claims)
+// instead of failing — a previous attempt may have created the Auth user
+// without ever writing authUid onto the employee doc.
+async function createEmployeeLogin({ username, password, employeeId }) {
+  if (!username || !password || !employeeId) {
+    throw new HttpsError('invalid-argument', 'username, password, and employeeId are required.');
+  }
+  if (password.length < 6) {
+    throw new HttpsError('invalid-argument', 'Password must be at least 6 characters (Firebase requirement).');
+  }
+  const email = toEmail(username);
+  let user;
+  try {
+    user = await admin.auth().createUser({ email, password });
+  } catch (err) {
+    if (authErrorCode(err) !== 'auth/email-already-exists') throw err;
+    user = await admin.auth().getUserByEmail(email);
+    await admin.auth().updateUser(user.uid, { password });
+  }
+  await admin.auth().setCustomUserClaims(user.uid, { role: 'employee', employeeId });
+  await admin.firestore().collection('employees').doc(employeeId).set({ authUid: user.uid }, { merge: true });
+  return user;
+}
+
 // Create a Firebase Auth login for a new employee.
 // Called by the app right after master adds the employee's Firestore profile.
 exports.createEmployeeAuth = onCall(async (request) => {
   requireMaster(request);
   const { username, password, employeeId } = request.data || {};
-  if (!username || !password || !employeeId) throw new HttpsError('invalid-argument', 'username, password, and employeeId are required.');
-  if (password.length < 6) throw new HttpsError('invalid-argument', 'Password must be at least 6 characters (Firebase requirement).');
-  const user = await admin.auth().createUser({ email: toEmail(username), password });
-  await admin.auth().setCustomUserClaims(user.uid, { role: 'employee', employeeId });
-  await admin.firestore().collection('employees').doc(employeeId).set({ authUid: user.uid }, { merge: true });
+  const user = await createEmployeeLogin({ username, password, employeeId });
   return { uid: user.uid };
 });
 
 // Update an employee's username and/or password, or enable/disable login.
+// When authUid is missing — or the Auth user was deleted — and a password
+// is supplied, create the login the same way createEmployeeAuth does.
+// createEmployeeAuth can fail at add time (for example billing disabled)
+// and leave a profile with no login; setting a password repairs that.
 exports.updateEmployeeAuth = onCall(async (request) => {
   requireMaster(request);
   const { employeeId, username, password, disabled } = request.data || {};
   if (!employeeId) throw new HttpsError('invalid-argument', 'employeeId is required.');
   const snap = await admin.firestore().collection('employees').doc(employeeId).get();
-  const uid = snap.exists ? snap.data().authUid : null;
-  if (!uid) throw new HttpsError('not-found', 'No auth account found for that employee — try Save again after re-adding them.');
-  const update = {};
-  if (username) update.email = toEmail(username);
-  if (password) {
-    if (password.length < 6) throw new HttpsError('invalid-argument', 'Password must be at least 6 characters.');
-    update.password = password;
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'No auth account found for that employee — try Save again after re-adding them.');
   }
-  if (typeof disabled === 'boolean') update.disabled = disabled;
-  await admin.auth().updateUser(uid, update);
+  const data = snap.data() || {};
+  const uid = data.authUid || null;
+  if (uid) {
+    const update = {};
+    if (username) update.email = toEmail(username);
+    if (password) {
+      if (password.length < 6) throw new HttpsError('invalid-argument', 'Password must be at least 6 characters.');
+      update.password = password;
+    }
+    if (typeof disabled === 'boolean') update.disabled = disabled;
+    try {
+      await admin.auth().updateUser(uid, update);
+      return { ok: true };
+    } catch (err) {
+      if (authErrorCode(err) !== 'auth/user-not-found') throw err;
+    }
+  }
+  const loginUsername = username || data.username;
+  if (!loginUsername || !password) {
+    throw new HttpsError('not-found', 'No auth account found for that employee — try Save again after re-adding them.');
+  }
+  const user = await createEmployeeLogin({ username: loginUsername, password, employeeId });
+  if (typeof disabled === 'boolean') await admin.auth().updateUser(user.uid, { disabled });
   return { ok: true };
 });
 

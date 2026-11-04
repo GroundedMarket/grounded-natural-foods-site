@@ -8689,7 +8689,7 @@ async function saveEmployee() {
   } catch (err) {
     console.error("Create employee failed:", err);
     alert(
-      `Employee profile saved, but creating their login failed: ${err.message}. Open their page and set a new password to retry, or delete and re-add them.`
+      `Employee profile saved, but creating their login failed: ${err.message}. Setting a password on their page will create the login.`
     );
   }
 }
