@@ -3,7 +3,8 @@
     "eslint": "^10.6.0"
   },
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test store-closures.test.js"
   },
   "dependencies": {
     "escpos": "^3.0.0-alpha.6",
