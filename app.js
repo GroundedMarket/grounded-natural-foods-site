@@ -290,7 +290,10 @@ const db = {
   recipes: [],
 
   // Dates the store is entirely closed — pickup disabled outright on these.
+  // closedDateRecords keeps an optional display name; closedDates stays
+  // the id list every existing check already uses.
   closedDates: [],
+  closedDateRecords: [],
 
   // Weeks whose schedule master has published — unpublished weeks are
   // invisible to anyone except master, even if the shifts are already saved.
@@ -1666,7 +1669,11 @@ function initFirebaseSync() {
     db.recipes = arr;
   });
   bindRecordCollection("closedDates", (arr) => {
-    db.closedDates = arr.map((d) => d.id);
+    db.closedDateRecords = arr.map((d) => ({
+      id: d.id,
+      name: typeof d.name === "string" ? d.name.trim() : "",
+    }));
+    db.closedDates = db.closedDateRecords.map((d) => d.id);
   });
   bindRecordCollection("publishedWeeks", (arr) => {
     db.publishedWeeks = arr.map((d) => d.id);
@@ -3091,8 +3098,8 @@ function openOrderCheckoutModal() {
 // pickup must be ordered before 4pm. Custom Panini/Salad orders are further
 // restricted to an 11am-2pm pickup window on top of the above.
 function validatePickup(dateISO, timeStr, needsPaniniWindow) {
-  if (isStoreClosedOn(dateISO))
-    return "We're closed that day — please choose a different pickup date.";
+  const closedMsg = StoreClosures.closurePickupMessage(dateISO, storeClosureRecords());
+  if (closedMsg) return closedMsg;
   const d = new Date(dateISO + "T00:00");
   const dow = d.getDay(); // 0=Sun..6=Sat
   if (dow === 0)
@@ -4225,7 +4232,10 @@ function renderPortalBody() {
   // weekly schedule slides up. Put the scroll position back on every
   // schedule render, including the Firestore snapshot that follows an
   // approve or deny.
-  if (onSchedule) restorePageScroll(scrollY);
+  if (onSchedule) {
+    restorePageScroll(scrollY);
+    requestAnimationFrame(placeClosureLanes);
+  }
 }
 
 /* ============================================================
@@ -9530,6 +9540,15 @@ function saveOpenShift() {
     alert("Pick a date.");
     return;
   }
+  const closure = closureForScheduleDate(dateISO);
+  if (closure) {
+    alert(
+      closure.name
+        ? `The store is closed ${dateISO} (${closure.name}). This shift was not posted.`
+        : `The store is closed ${dateISO}. This shift was not posted.`
+    );
+    return;
+  }
   const dayKey = dayKeyForDate(dateISO);
   const weekKey = weekKeyOf(new Date(dateISO + "T00:00:00"));
   const start = document.getElementById("os-start").value;
@@ -9644,6 +9663,16 @@ function openShiftPickupActionHTML(weekKey, s) {
   return `<button class="btn small" onclick="requestOpenShift('${weekKey}','${s.pseudoId}','${s.dayKey}')">Request This Shift</button>`;
 }
 function requestOpenShift(weekKey, pseudoId, dayKey) {
+  const dateISO = StoreClosures.scheduleDateForDay(weekKey, dayKey);
+  const closure = closureForScheduleDate(dateISO);
+  if (closure) {
+    alert(
+      closure.name
+        ? `The store is closed ${dateISO} (${closure.name}). That shift can't be requested.`
+        : `The store is closed ${dateISO}. That shift can't be requested.`
+    );
+    return;
+  }
   if (!confirm("Request this shift? The master account will need to approve it before it's on your schedule.")) return;
   closeModal();
   const req = {
@@ -9670,6 +9699,13 @@ function requestOpenShift(weekKey, pseudoId, dayKey) {
 }
 
 let closedDatesMonthOffset = 0;
+function storeClosureRecords() {
+  if (db.closedDateRecords && db.closedDateRecords.length) return db.closedDateRecords;
+  return db.closedDates || [];
+}
+function closureForScheduleDate(dateISO) {
+  return StoreClosures.closureForDate(dateISO, storeClosureRecords());
+}
 function isStoreClosedOn(dateISO) {
   return db.closedDates.includes(dateISO);
 }
@@ -9677,6 +9713,7 @@ function toggleClosedDate(dateISO) {
   const idx = db.closedDates.indexOf(dateISO);
   if (idx >= 0) {
     db.closedDates.splice(idx, 1);
+    db.closedDateRecords = (db.closedDateRecords || []).filter((r) => r.id !== dateISO);
     fsdb
       .collection("closedDates")
       .doc(dateISO)
@@ -9684,6 +9721,8 @@ function toggleClosedDate(dateISO) {
       .catch((err) => console.error("Remove closed date failed:", err));
   } else {
     db.closedDates.push(dateISO);
+    if (!db.closedDateRecords) db.closedDateRecords = [];
+    db.closedDateRecords.push({ id: dateISO, name: "" });
     fsdb
       .collection("closedDates")
       .doc(dateISO)
@@ -9726,12 +9765,20 @@ function buildClosedDatesCalHTML(monthKey) {
       leadingPlaced = true;
     }
     const iso = isoDate(date);
-    const closed = isStoreClosedOn(iso);
+    const closure = closureForScheduleDate(iso);
     cells += `<div class="soup-cell ${
-      closed ? "closed-date" : ""
+      closure ? "closed-date" : ""
     }" style="cursor:pointer" onclick="toggleClosedDate('${iso}')">
       <div class="d">${d}</div>
-      ${closed ? '<div class="closed-label">Closed</div>' : ""}
+      ${
+        closure
+          ? `<div class="closed-label">Closed</div>${
+              closure.name
+                ? `<div class="closed-name">${escHtml(closure.name)}</div>`
+                : ""
+            }`
+          : ""
+      }
     </div>`;
   }
   return cells;
@@ -10056,6 +10103,18 @@ function respondShiftSwapAsEmployee(id, approve) {
 function respondShiftSwapAsMaster(id, approve) {
   const r = db.shiftSwaps.find((x) => x.id === id);
   if (!r) return;
+  if (approve) {
+    const hits = StoreClosures.closuresTouchedBySwap(r, storeClosureRecords());
+    if (hits.length) {
+      const names = hits
+        .map((h) => (h.name ? `${h.date} (${h.name})` : h.date))
+        .join(", ");
+      alert(
+        `Can't move a shift onto a store closure: ${names}. Nothing was changed.`
+      );
+      return;
+    }
+  }
   const scrollY = pageScrollY();
   const comment =
     prompt(
@@ -10362,6 +10421,15 @@ function employeeShowsInWeek(emp, weekKey) {
   const sched = (db.schedule[weekKey] || {})[emp.id];
   return !!(sched && Object.keys(sched).length);
 }
+function closureConflictHTML(timeLabel, extraHtml) {
+  return `<div class="closure-conflicts"><div class="shift-card conflict"><span class="conflict-tag">⚠ On closed day</span>${timeLabel}${
+    extraHtml || ""
+  }</div></div>`;
+}
+function columnHasShift(weekKey, dayKey) {
+  const sched = db.schedule[weekKey] || {};
+  return Object.keys(sched).some((empId) => sched[empId] && sched[empId][dayKey]);
+}
 function weekBoxHTML(weekKey, monday, hideHours) {
   if (!session.isMaster && !isWeekPublished(weekKey)) {
     return `<p class="empty-note" style="padding:14px 4px">The schedule for this week hasn't been published yet — check back soon.</p>`;
@@ -10370,6 +10438,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
   const days = scheduleDayKeys();
   const roles = [...new Set(db.employees.filter((e) => employeeShowsInWeek(e, weekKey)).map((e) => e.role))];
   let rows = "";
+  const closures = days.map((dk, i) => closureForScheduleDate(isoDate(addDays(monday, i))));
   roles.forEach((role) => {
     rows += `<div class="sched-role-row">${role}</div>`;
     db.employees.filter((e) => employeeShowsInWeek(e, weekKey) && e.role === role).forEach((emp) => {
@@ -10382,37 +10451,120 @@ function weekBoxHTML(weekKey, monday, hideHours) {
       days.forEach((dk, i) => {
         const date = addDays(monday, i);
         const dateISO = isoDate(date);
+        const closure = closures[i];
+        const closedClass = closure ? " is-closed" : "";
         if (emp.deactivateDate && dateISO >= emp.deactivateDate) {
-          rows += `<div class="sched-cell${isSelf ? " own-row" : ""}"></div>`;
+          rows += `<div class="sched-cell${closedClass}${isSelf ? " own-row" : ""}" data-day-col="${
+            i + 2
+          }"></div>`;
           return;
         }
         const cellData = (sched[emp.id] || {})[dk];
         const req = db.timeOffRequests.find((r) => r.employeeId === emp.id && timeOffRequestVisible(r) && reqCoversDate(r, dateISO) && r.status !== "denied");
         const isReq = !!req;
         const hasShift = !!cellData;
-        const label = hasShift ? `${formatTime12hr(cellData.start)} - ${formatTime12hr(cellData.end)}${isReq ? ` <span title="Time off also ${req.status} for part of this day" style="color:var(--terracotta)">•</span>` : ""}` : isReq ? `Off${req.status === "pending" ? " ?" : ""}` : "";
-        const clickable = hideHours ? "" : session.isMaster ? `onclick="editCell('${weekKey}','${emp.id}','${dk}','${dateISO}')"` : canEditRow ? `onclick="employeeCellClick('${weekKey}','${emp.id}','${dk}','${dateISO}')"` : "";
+        const timeOffDot = isReq
+          ? ` <span title="Time off also ${req.status} for part of this day" style="color:var(--terracotta)">•</span>`
+          : "";
         const noteText = scheduleNoteHTML(hasShift && cellData.notes);
+        let label = "";
+        if (closure && hasShift) {
+          label = closureConflictHTML(
+            `${formatTime12hr(cellData.start)} - ${formatTime12hr(cellData.end)}`,
+            `${timeOffDot}${noteText}`
+          );
+        } else if (closure) {
+          label = "";
+        } else if (hasShift) {
+          label = `${formatTime12hr(cellData.start)} - ${formatTime12hr(cellData.end)}${timeOffDot}`;
+        } else if (isReq) {
+          label = `Off${req.status === "pending" ? " ?" : ""}`;
+        }
+        const clickable = hideHours ? "" : session.isMaster ? `onclick="editCell('${weekKey}','${emp.id}','${dk}','${dateISO}')"` : canEditRow ? `onclick="employeeCellClick('${weekKey}','${emp.id}','${dk}','${dateISO}')"` : "";
         // Heads-up flag: shown whenever the employee's typical schedule marks
         // this day of the week unavailable, whether or not a shift ended up
         // scheduled anyway (the master can still schedule over it on purpose).
-        const unavailLabel = typicalUnavailableLabel(emp.typicalSchedule[dk]);
-        const unavailFlag = unavailLabel
+        const unavailLabel = typicalUnavailableLabel((emp.typicalSchedule || {})[dk]);
+        const unavailFlag = unavailLabel && !closure
           ? `<div class="sched-unavail-flag" title="${escAttr(
               `${emp.name} marked: ${unavailLabel}`
             )}">🚫${hasShift ? "" : ` <span class="sched-unavail-text">${unavailLabel}</span>`}</div>`
           : "";
-        rows += `<div class="sched-cell ${isReq && !hasShift ? "request" : ""}${unavailLabel && !hasShift ? " unavail-heads-up" : ""}${isSelf ? " own-row" : ""}" ${clickable}>${label}${unavailFlag}${noteText}</div>`;
+        const openNote = closure ? "" : noteText;
+        rows += `<div class="sched-cell${closedClass}${!closure && isReq && !hasShift ? " request" : ""}${!closure && unavailLabel && !hasShift ? " unavail-heads-up" : ""}${isSelf ? " own-row" : ""}" data-day-col="${
+          i + 2
+        }" ${clickable}>${label}${unavailFlag}${openNote}</div>`;
       });
     });
   });
   rows += availableShiftsRowHTML(weekKey, days, hideHours);
   const gridClass = days.length === 7 ? "sched-grid with-sun" : "sched-grid";
+  const lanes = closures
+    .map((closure, i) =>
+      closure
+        ? StoreClosures.closureLaneHTML(
+            closure,
+            i + 2,
+            columnHasShift(weekKey, days[i])
+          )
+        : ""
+    )
+    .join("");
   return `<div class="week-box"><div class="week-label">${fmtWeekRange(monday)}</div>
     <div class="${gridClass}">
-      <div class="sched-head">Employee</div>${days.map((d, i) => `<div class="sched-head">${d} ${fmtShort(addDays(monday, i))}</div>`).join("")}
+      <div class="sched-head"><span class="sched-head-date">Employee</span><div class="hhol" aria-hidden="true"></div></div>${days
+        .map((d, i) => {
+          const closure = closures[i];
+          const date = addDays(monday, i);
+          const aria = closure
+            ? ` aria-label="${escHtmlAttr(StoreClosures.closureAriaLabel(closure, d))}"`
+            : "";
+          const note = closure
+            ? `<div class="hhol">${escHtml(
+                closure.name ? `${closure.name} · Closed` : "Closed"
+              )}</div>`
+            : `<div class="hhol" aria-hidden="true"></div>`;
+          return `<div class="sched-head${
+            closure ? " is-closed" : ""
+          }" data-day-col="${i + 2}"${aria}><span class="sched-head-date">${d} ${fmtShort(
+            date
+          )}</span>${note}</div>`;
+        })
+        .join("")}
+      ${lanes}
       ${rows}
     </div></div>`;
+}
+function placeClosureLanes() {
+  document.querySelectorAll(".week-box .sched-grid").forEach((grid) => {
+    const gridRect = grid.getBoundingClientRect();
+    grid.querySelectorAll(".closure-art").forEach((art) => {
+      const col = art.getAttribute("data-grid-column");
+      const header = grid.querySelector(`.sched-head[data-day-col="${col}"]`);
+      const cells = [...grid.querySelectorAll(`.sched-cell[data-day-col="${col}"]`)];
+      if (!header || !cells.length) return;
+      const headRect = header.getBoundingClientRect();
+      const first = cells[0].getBoundingClientRect();
+      const last = cells[cells.length - 1].getBoundingClientRect();
+      const bodyStart = first.top - gridRect.top;
+      const bodyEnd = last.bottom - gridRect.top;
+      const blocked = cells
+        .filter((cell) => cell.querySelector(".closure-conflicts"))
+        .map((cell) => {
+          const rect = cell.getBoundingClientRect();
+          return { start: rect.top - gridRect.top, end: rect.bottom - gridRect.top };
+        });
+      const gap = StoreClosures.largestFreeSpan(bodyStart, bodyEnd, blocked);
+      const span = gap || { start: bodyStart, end: bodyEnd };
+      art.style.gridRow = "auto";
+      art.style.gridColumn = "auto";
+      art.style.left = headRect.left - gridRect.left + "px";
+      art.style.width = headRect.width + "px";
+      art.style.top = span.start + "px";
+      art.style.height = Math.max(0, span.end - span.start) + "px";
+      art.classList.toggle("is-tight", span.end - span.start < 200);
+    });
+  });
 }
 
 function showProfile(empId) {
@@ -10426,18 +10578,28 @@ function showProfile(empId) {
 
 function editCell(weekKey, empId, dayKey, dateISO) {
   const emp = db.employees.find((e) => e.id === empId);
-  const typical = emp.typicalSchedule[dayKey];
+  const typical = (emp.typicalSchedule || {})[dayKey];
   const isTypicalWorking = !!(typical && !typical.unavailable);
   const unavailLabel = typicalUnavailableLabel(typical);
   const current = (weekSchedule(weekKey)[empId] || {})[dayKey];
+  const closure = closureForScheduleDate(dateISO);
   openModal(`<h3>${emp.name} — ${dayKey} ${dateISO}</h3>
     ${
-      unavailLabel
+      closure
+        ? `<p class="closure-editor-note"><strong>Closed${
+            closure.name ? ` — ${escHtml(closure.name)}` : ""
+          }.</strong> New or edited shifts can't be saved on a store closure.${
+            current ? " The shift already on this day is still here." : ""
+          }</p>`
+        : ""
+    }
+    ${
+      !closure && unavailLabel
         ? `<p style="font-size:12.5px;color:var(--red-flag)">🚫 ${emp.name} is marked "${unavailLabel}" on their typical schedule for this day. You can still schedule them if needed.</p>`
         : ""
     }
     ${
-      isTypicalWorking
+      !closure && isTypicalWorking
         ? `<button class="btn small outline" onclick="applyTypical('${weekKey}','${empId}','${dayKey}')">Use typical: ${formatTime12hr(
             typical.start
           )} - ${formatTime12hr(typical.end)}</button><br><br>`
@@ -10470,10 +10632,24 @@ function editCell(weekKey, empId, dayKey, dateISO) {
           ? `<button class="btn danger" onclick="clearCell('${weekKey}','${empId}','${dayKey}')">Clear</button>`
           : ""
       }
-      <button class="btn" onclick="saveCell('${weekKey}','${empId}','${dayKey}')">Save</button>
+      ${
+        closure
+          ? ""
+          : `<button class="btn" onclick="saveCell('${weekKey}','${empId}','${dayKey}')">Save</button>`
+      }
     </div>`);
 }
 function saveCell(weekKey, empId, dayKey) {
+  const dateISO = StoreClosures.scheduleDateForDay(weekKey, dayKey);
+  const closure = closureForScheduleDate(dateISO);
+  if (closure) {
+    alert(
+      closure.name
+        ? `The store is closed ${dateISO} (${closure.name}). This shift was not saved.`
+        : `The store is closed ${dateISO}. This shift was not saved.`
+    );
+    return;
+  }
   const sched = weekSchedule(weekKey);
   if (!sched[empId]) sched[empId] = {};
   const notes = document.getElementById("cell-notes").value.trim();
@@ -10507,17 +10683,41 @@ function clearCell(weekKey, empId, dayKey) {
 function availableShiftsRowHTML(weekKey, days, hideHours) {
   const open = openShiftsForWeek(weekKey).filter((s) => days.includes(s.dayKey));
   if (!open.length) return "";
+  const monday = mondayFromWeekKey(weekKey);
   let html = `<div class="sched-role-row">Open for pickup</div>`;
   html += `<div class="sched-name open-available-name"><span class="sched-open-tag">Available</span></div>`;
-  days.forEach((dk) => {
+  days.forEach((dk, i) => {
+    const dateISO = isoDate(addDays(monday, i));
+    const closure = closureForScheduleDate(dateISO);
     const dayShifts = open.filter((s) => s.dayKey === dk);
+    const closedClass = closure ? " is-closed" : "";
     if (!dayShifts.length) {
-      html += `<div class="sched-cell open-available empty"></div>`;
+      html += `<div class="sched-cell open-available empty${closedClass}" data-day-col="${
+        i + 2
+      }"></div>`;
       return;
     }
     const click = hideHours
       ? ""
       : `onclick="openAvailableDay('${weekKey}','${dk}')"`;
+    if (closure) {
+      const cards = dayShifts
+        .map(
+          (s) =>
+            `<div class="shift-card">${formatTime12hr(s.start)} - ${formatTime12hr(
+              s.end
+            )}${s.role ? ` · ${escHtml(s.role)}` : ""}</div>`
+        )
+        .join("");
+      html += `<div class="sched-cell open-available is-closed" data-day-col="${
+        i + 2
+      }" ${click}><div class="closure-conflicts">${cards
+        .replaceAll(
+          '<div class="shift-card">',
+          '<div class="shift-card conflict"><span class="conflict-tag">⚠ On closed day</span>'
+        )}</div></div>`;
+      return;
+    }
     const chips = dayShifts
       .map((s) => {
         const role = s.role
@@ -10528,7 +10728,9 @@ function availableShiftsRowHTML(weekKey, days, hideHours) {
         )} - ${formatTime12hr(s.end)}</span>${role}`;
       })
       .join("");
-    html += `<div class="sched-cell open-available" ${click}><span class="sched-open-tag">open</span>${chips}</div>`;
+    html += `<div class="sched-cell open-available" data-day-col="${
+      i + 2
+    }" ${click}><span class="sched-open-tag">open</span>${chips}</div>`;
   });
   return html;
 }
@@ -10593,13 +10795,18 @@ function openCallOffConfirm(weekKey, empId, dayKey, dateISO, reason) {
   }
   const label = absenceReasonLabel(reason);
   const conflict = checkKeyholderConflict(weekKey, dayKey, empId);
+  const closure = closureForScheduleDate(dateISO);
   openModal(`<h3>${label} — ${escHtml(emp.name)}</h3>
     <p>${dayKey} ${dateISO}<br><strong>${formatTime12hr(
       shift.start
     )} - ${formatTime12hr(shift.end)}</strong></p>
     <p style="font-size:13.5px;color:var(--ink-soft)">Confirming records this on ${escHtml(
       emp.name
-    )}'s page, removes them from the shift, and posts the same hours as available for pickup.</p>
+    )}'s page and removes them from the shift${
+      closure
+        ? ". The store is closed that day, so the hours are not posted for pickup."
+        : ", and posts the same hours as available for pickup."
+    }</p>
     ${
       conflict
         ? `<p style="font-size:13.5px;color:var(--red-flag)">${escHtml(
@@ -10627,7 +10834,8 @@ function confirmCallOff(weekKey, empId, dayKey, dateISO, reason) {
   }
   const noteEl = document.getElementById("calloff-note");
   const note = noteEl ? noteEl.value.trim() : "";
-  const pseudoId = newId(OPEN_SHIFT_PREFIX);
+  const closure = closureForScheduleDate(dateISO);
+  const pseudoId = closure ? "" : newId(OPEN_SHIFT_PREFIX);
   const openShift = {
     start: shift.start,
     end: shift.end,
@@ -10651,23 +10859,25 @@ function confirmCallOff(weekKey, empId, dayKey, dateISO, reason) {
     responseComment: "",
   };
   delete sched[empId][dayKey];
-  sched[pseudoId] = { [dayKey]: openShift };
+  if (!closure) sched[pseudoId] = { [dayKey]: openShift };
   db.timeOffRequests.push({ id: absenceId, ...absence });
   const batch = fsdb.batch();
   batch.delete(
     fsdb.collection("scheduleShifts").doc(`${weekKey}__${empId}__${dayKey}`)
   );
-  batch.set(
-    fsdb.collection("scheduleShifts").doc(`${weekKey}__${pseudoId}__${dayKey}`),
-    openShift
-  );
+  if (!closure) {
+    batch.set(
+      fsdb.collection("scheduleShifts").doc(`${weekKey}__${pseudoId}__${dayKey}`),
+      openShift
+    );
+  }
   batch.set(fsdb.collection("timeOffRequests").doc(absenceId), absence);
   batch.commit().catch((err) => {
     console.error("Call-off failed:", err);
     const current = weekSchedule(weekKey);
     if (!current[empId]) current[empId] = {};
     current[empId][dayKey] = keptShift;
-    if (current[pseudoId]) delete current[pseudoId][dayKey];
+    if (pseudoId && current[pseudoId]) delete current[pseudoId][dayKey];
     db.timeOffRequests = db.timeOffRequests.filter((r) => r.id !== absenceId);
     alert(
       "Couldn't record this call-off — please try again." +
@@ -10773,18 +10983,32 @@ function applyTypical(weekKey, empId, dayKey) {
 }
 function magicFill(weekKey, empId) {
   const emp = db.employees.find((e) => e.id === empId);
+  if (!emp) return;
   const sched = weekSchedule(weekKey);
-  if (!sched[empId]) sched[empId] = {};
-  const batch = fsdb.batch();
-  Object.entries(emp.typicalSchedule).forEach(([day, val]) => {
-    if (val.unavailable) return; // never auto-fill a shift over marked unavailability
-    sched[empId][day] = { ...val };
-    batch.set(
-      fsdb.collection("scheduleShifts").doc(`${weekKey}__${empId}__${day}`),
-      { ...val }
-    );
+  const existing = Object.assign({}, sched[empId] || {});
+  const plan = StoreClosures.planTypicalFill({
+    weekMondayISO: weekKey,
+    typicalSchedule: emp.typicalSchedule || {},
+    closedDates: storeClosureRecords(),
+    timeOffRequests: db.timeOffRequests,
+    employeeId: empId,
+    existingShifts: existing,
   });
-  batch.commit().catch((err) => console.error("Magic fill save failed:", err));
+  if (!sched[empId]) sched[empId] = {};
+  const entries = Object.entries(plan.writes);
+  if (entries.length) {
+    const batch = fsdb.batch();
+    entries.forEach(([day, shift]) => {
+      sched[empId][day] = shift;
+      batch.set(
+        fsdb.collection("scheduleShifts").doc(`${weekKey}__${empId}__${day}`),
+        shift
+      );
+    });
+    batch.commit().catch((err) => console.error("Magic fill save failed:", err));
+  }
+  const message = StoreClosures.magicFillSkipMessage(emp.name, plan);
+  if (message) alert(message);
   renderPortalBody();
 }
 function employeeCellClick(weekKey, empId, dayKey, dateISO) {
@@ -11754,6 +11978,9 @@ function initDarkMode() {
 // gets a silent anonymous sign-in — enough identity to load menus and place
 // orders under the security rules, nothing more.
 initDarkMode();
+window.addEventListener("resize", () => {
+  if (document.querySelector(".closure-art")) placeClosureLanes();
+});
 renderPublic();
 showView("view-public");
 let bootDone = false;
