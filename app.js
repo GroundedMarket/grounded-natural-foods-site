@@ -902,12 +902,7 @@ function ordersTabHTML() {
     list = list.filter((o) => o.pickupDate === ordersDateFilter);
   // The toggle only controls what's VISIBLE/dimmed here — it never touches
   // what actually gets printed, which always includes every item regardless.
-  if (ordersViewMode === "kitchen")
-    list = list.filter((o) => o.channel !== "deliCounter" && orderHasNonCoffee(o));
-  else if (ordersViewMode === "coffee")
-    list = list.filter((o) => o.channel !== "deliCounter" && orderHasCoffee(o));
-  else if (ordersViewMode === "deli")
-    list = list.filter((o) => o.channel === "deliCounter");
+  list = ordersMatchingView(list);
 
   const today = todayISO();
   const upcoming = list.filter((o) => o.pickupDate >= today);
@@ -1058,7 +1053,7 @@ function buildOrdersCalHTML(monthKey) {
     dow = dow === 0 ? 6 : dow - 1;
     if (!leadingPlaced) { for (let i = 0; i < dow; i++) cells += `<div class="soup-cell empty"></div>`; leadingPlaced = true; }
     const iso = isoDate(date);
-    const dayOrders = realOrders().filter((o) => o.pickupDate === iso);
+    const dayOrders = ordersMatchingView(realOrders()).filter((o) => o.pickupDate === iso);
     const total = dayOrders.length;
     const doneCount = dayOrders.filter((o) => orderStatus(o) === "completed").length;
     const notDoneCount = total - doneCount;
@@ -1073,8 +1068,18 @@ function buildOrdersCalHTML(monthKey) {
   }
   return cells;
 }
+function ordersMatchingView(list) {
+  const source = list || realOrders();
+  if (ordersViewMode === "kitchen")
+    return source.filter((o) => o.channel !== "deliCounter" && orderHasNonCoffee(o));
+  else if (ordersViewMode === "coffee")
+    return source.filter((o) => o.channel !== "deliCounter" && orderHasCoffee(o));
+  else if (ordersViewMode === "deli")
+    return source.filter((o) => o.channel === "deliCounter");
+  return source.slice();
+}
 function openOrdersDayModal(dateISO, filterMode) {
-  let list = realOrders().filter((o) => o.pickupDate === dateISO);
+  let list = ordersMatchingView(realOrders()).filter((o) => o.pickupDate === dateISO);
   let title = `Orders — ${dateISO}`;
   if (filterMode === "done") { list = list.filter((o) => orderStatus(o) === "completed"); title = `Completed — ${dateISO}`; }
   else if (filterMode === "notdone") { list = list.filter((o) => orderStatus(o) !== "completed"); title = `Not Completed — ${dateISO}`; }
@@ -7213,9 +7218,9 @@ function mcGridSlotCount(filledCount) {
   return rows * MC_SLOTS_PER_ROW;
 }
 function mcFmtLbs(n) {
-  const v = Math.round((n || 0) * 100) / 100;
-  if (v % 1 === 0) return String(v);
-  return v.toFixed(2).replace(/0$/, "");
+  if (typeof DeliCounter !== "undefined" && DeliCounter.formatWeight) return DeliCounter.formatWeight(n);
+  const v = Math.round((Number(n) || 0) * 1000) / 1000;
+  return String(v);
 }
 function mcFmtDate(iso) {
   if (!iso) return "";

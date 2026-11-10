@@ -62,17 +62,22 @@ function deliWatchLoad() {
   }, 12000);
 }
 
+function deliPriceLabel(item) {
+  var price = item.pricePerLb != null && item.pricePerLb !== "" ? item.pricePerLb : item.price;
+  if (price == null || price === "") return "In stock";
+  var amount = typeof price === "number" ? price.toFixed(2) : String(price).replace(/^\$/, "");
+  return "$" + amount + "/lb · In stock";
+}
+
 function deliTileHTML(item) {
-  var price = item.pricePerLb || item.price;
-  var priceLabel = price ? " · $" + (typeof price === "number" ? price.toFixed(2) : price) + "/lb" : "";
   var open = item.catalog === "counter"
     ? "deliOpenItem('" + item.id + "')"
     : "openMeatCheeseOrderModal('" + item.id + "')";
-  return '<button type="button" class="mc-public-tile mc-cat-' + item.category + '" onclick="' + open + '">' +
+  var selected = deliDraft && deliDraft.itemId === item.id ? " is-on" : "";
+  return '<button type="button" class="mc-public-tile mc-cat-' + item.category + selected + '" onclick="' + open + '">' +
     '<span class="mc-tile-emoji">' + escHtml(item.emoji || (item.category === "meat" ? "🥩" : "🧀")) + "</span>" +
     '<span class="mc-public-tile-info"><strong>' + escHtml(item.displayName || item.name) + "</strong>" +
-    '<span class="mc-public-tile-sub">' + escHtml(DeliCounter.formatWeight(item.lbsOnHand || item.availableWeight || 0)) +
-    " lb" + escHtml(priceLabel) + "</span></span></button>";
+    '<span class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</span></span></button>";
 }
 
 function deliGroupBlockHTML(label, items) {
@@ -125,11 +130,151 @@ function deliRenderPublicLists() {
 }
 
 function deliRemoveSlip(index) {
+  deliCaptureDialog();
   deliSlip.splice(index, 1);
   deliRenderSlip();
+  if (document.getElementById("deli-editor") || document.querySelector(".deli-order-list")) deliRenderOrderDialog();
 }
 
-function deliOpenGroupedPicker() {
+function deliRequestedFor(itemId, extra) {
+  var total = Number(extra) || 0;
+  deliSlip.forEach(function (line) {
+    if (line.itemId === itemId) total += Number(line.weightLbs) || 0;
+  });
+  return DeliCounter.normalizeLbs(total);
+}
+
+function deliSlipProblems() {
+  var totals = {};
+  deliSlip.forEach(function (line) {
+    totals[line.itemId] = DeliCounter.normalizeLbs((totals[line.itemId] || 0) + (Number(line.weightLbs) || 0));
+  });
+  var problems = [];
+  Object.keys(totals).forEach(function (id) {
+    var item = deliFind(id);
+    if (!item) return;
+    var message = DeliCounter.stockMessage(item.lbsOnHand, totals[id]);
+    if (message) problems.push({ id: id, name: item.displayName || item.name, message: message });
+  });
+  return problems;
+}
+
+function deliEnsureCheckout() {
+  if (deliCheckout) return;
+  var account = null;
+  if (typeof localCustomerSession !== "undefined" && localCustomerSession && typeof loadCustomerAccounts === "function") {
+    account = loadCustomerAccounts()[localCustomerSession.phone] || null;
+  }
+  var dates = DeliCounter.pickupDates(new Date(), db.closedDates || [], 21);
+  deliCheckout = {
+    name: account && account.name ? account.name : "",
+    phone: typeof localCustomerSession !== "undefined" && localCustomerSession ? localCustomerSession.phone : "",
+    date: dates[0] || "",
+    time: "",
+    notes: "",
+  };
+}
+
+function deliCaptureDialog() {
+  if (document.getElementById("deli-name")) deliReadCheckout();
+  var weight = document.getElementById("deli-weight-input");
+  var note = document.getElementById("deli-line-note");
+  if (deliDraft && weight) deliDraft.weightLbs = weight.value;
+  if (deliDraft && note) deliDraft.note = note.value;
+}
+
+function deliDraftMessage() {
+  if (!deliDraft) return "";
+  var item = deliFind(deliDraft.itemId);
+  if (!item) return "";
+  var weight = Number(deliDraft.weightLbs);
+  if (!isFinite(weight) || weight <= 0) return "Enter how much you'd like.";
+  return DeliCounter.stockMessage(item.lbsOnHand, deliRequestedFor(item.id, weight));
+}
+
+function deliEditorHTML() {
+  var draft = deliDraft;
+  if (!draft) {
+    return '<p class="deli-next-hint">Tap an item to add it.</p>';
+  }
+  var item = deliFind(draft.itemId);
+  if (!item) return '<p class="deli-next-hint">Tap an item to add it.</p>';
+  var message = deliDraftMessage();
+  var catClass = "mc-cat-" + item.category;
+  var quick = [0.25, 0.5, 0.75, 1];
+  var remainder = DeliCounter.normalizeLbs(item.lbsOnHand);
+  if (remainder > 0 && remainder < 0.25 && quick.indexOf(remainder) === -1) quick.unshift(remainder);
+  return '<div class="deli-editor" id="deli-editor">' +
+    "<h3>" + escHtml(item.displayName || item.name) + "</h3>" +
+    '<p class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</p>" +
+    '<div class="field"><label>Amount (lb)</label><div class="deli-weight-row">' +
+    quick.map(function (weight) {
+      var on = Math.abs(Number(draft.weightLbs) - weight) < 1e-9 ? " is-on" : "";
+      return '<button type="button" class="deli-weight-chip' + on + '" onclick="deliPickWeight(' + weight + ')">' +
+        escHtml(DeliCounter.formatWeight(weight)) + " lb</button>";
+    }).join("") +
+    '</div><input type="number" id="deli-weight-input" min="0" step="0.25" value="' + escHtmlAttr(String(draft.weightLbs)) +
+    '" oninput="deliWeightTyped(this.value)"></div>' +
+    (message ? '<p class="deli-stock-error" id="deli-stock-error">' + escHtml(message) + "</p>" : '<p class="deli-stock-error" id="deli-stock-error" hidden></p>') +
+    '<div class="field"><label>Slice</label><div class="mc-slice-grid">' +
+    DeliCounter.SLICE_STYLES.map(function (style) {
+      var on = draft.sliceStyle === style.id ? " is-on" : "";
+      return '<button type="button" class="mc-slice-btn' + on + '" onclick="deliPickSlice(\'' + style.id + '\')">' +
+        mcSliceIconHTML(style.id, catClass) + "<span>" + escHtml(style.label) + "</span></button>";
+    }).join("") + "</div></div>" +
+    '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
+    escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
+    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (message ? " disabled" : "") + ">Add to order</button></div>";
+}
+
+function deliSummaryHTML() {
+  if (!deliSlip.length) return "";
+  var problems = deliSlipProblems();
+  var problemById = {};
+  problems.forEach(function (problem) { problemById[problem.id] = problem.message; });
+  return '<div class="deli-slip"><h3 class="mc-group-head">Your order</h3>' +
+    deliSlip.map(function (line, index) {
+      var item = deliFind(line.itemId);
+      var name = item ? item.displayName || item.name : "Item";
+      var style = (DeliCounter.SLICE_STYLES.filter(function (s) { return s.id === line.sliceStyle; })[0] || {}).label || "";
+      var error = problemById[line.itemId]
+        ? '<p class="deli-stock-error">' + escHtml(problemById[line.itemId]) + "</p>"
+        : "";
+      return '<div class="deli-slip-line"><span>' + escHtml(DeliCounter.formatWeight(line.weightLbs) + " lb " + style + " — " + name) +
+        '</span><button type="button" class="btn small danger" onclick="deliRemoveSlip(' + index + ')">✕</button></div>' + error;
+    }).join("") + "</div>";
+}
+
+function deliCheckoutHTML() {
+  if (!deliSlip.length) return "";
+  deliEnsureCheckout();
+  var state = deliCheckout;
+  var now = new Date();
+  var closed = db.closedDates || [];
+  var dates = DeliCounter.pickupDates(now, closed, 21);
+  if (state.date && dates.indexOf(state.date) === -1) state.date = dates[0] || "";
+  var times = state.date ? DeliCounter.pickupTimes(state.date, now, closed) : [];
+  if (state.time && times.indexOf(state.time) === -1) state.time = times[0] || "";
+  var blocked = deliSlipProblems().length > 0;
+  return '<div class="deli-checkout"><h3 class="mc-group-head">Pickup details</h3>' +
+    '<p class="mc-public-intro">No payment here. You pay at the counter. Hours are Mon–Fri 9–4 and Sat 9–2.</p>' +
+    '<div class="field"><label>Name</label><input type="text" id="deli-name" value="' + escHtmlAttr(state.name) + '" oninput="deliCheckout.name=this.value"></div>' +
+    '<div class="field"><label>Phone</label><input type="tel" id="deli-phone" value="' + escHtmlAttr(state.phone) + '" oninput="deliCheckout.phone=this.value"></div>' +
+    '<div class="field"><label>Pickup date</label><select id="deli-date" onchange="deliCheckoutDate(this.value)">' +
+    (dates.length ? dates.map(function (iso) {
+      return '<option value="' + iso + '"' + (iso === state.date ? " selected" : "") + ">" + iso + "</option>";
+    }).join("") : '<option value="">No open days</option>') + "</select></div>" +
+    '<div class="field"><label>Pickup time</label><select id="deli-time" onchange="deliCheckout.time=this.value">' +
+    times.map(function (time) {
+      return '<option value="' + time + '"' + (time === state.time ? " selected" : "") + ">" +
+        escHtml(formatTime12hr(time)) + "</option>";
+    }).join("") + "</select></div>" +
+    '<div class="field"><label>Note for the counter</label><textarea id="deli-order-note" maxlength="300" oninput="deliCheckout.notes=this.value">' +
+    escHtml(state.notes || "") + "</textarea></div>" +
+    '<button type="button" class="btn" id="deli-place-btn" onclick="deliSubmitOrder()"' + (blocked ? " disabled" : "") + ">Place pickup order</button></div>";
+}
+
+function deliRenderOrderDialog() {
   var phase = deliPublicPhase();
   if (phase === "loading") {
     openModal("<h3>Order Meat &amp; Cheese</h3>" + marketLoadingHTML("Loading Meats & Cheese") +
@@ -141,6 +286,7 @@ function deliOpenGroupedPicker() {
       '<div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>');
     return;
   }
+  deliEnsureCheckout();
   var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true });
   var meatHtml = grouped.meats.map(function (group) {
     return deliGroupBlockHTML(group.label, group.items);
@@ -148,128 +294,81 @@ function deliOpenGroupedPicker() {
   var cheeseHtml = grouped.cheeses.length
     ? '<h3 class="mc-group-head">Cheese</h3>' + grouped.cheeses.map(deliTileHTML).join("")
     : "";
-  openModal('<h3>Order Meat &amp; Cheese</h3><p class="mc-public-intro">In-stock items only. Meats are grouped by type. Pay when you pick up.</p>' +
-    '<div class="mc-public-list">' + (meatHtml + cheeseHtml || '<p class="empty-note">Nothing available right now.</p>') + "</div>" +
-    '<div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>');
+  openModal('<h3>Order Meat &amp; Cheese</h3>' +
+    '<p class="deli-next-hint">Tap an item to add it. Then enter a weight, and your name and pickup time.</p>' +
+    deliEditorHTML() +
+    deliSummaryHTML() +
+    deliCheckoutHTML() +
+    '<div class="mc-public-list deli-order-list">' + (meatHtml + cheeseHtml || '<p class="empty-note">Nothing available right now.</p>') + "</div>" +
+    '<div class="modal-actions"><button class="btn outline" onclick="deliDraft=null;closeModal()">Close</button></div>');
+  var editor = document.getElementById("deli-editor");
+  if (editor && editor.scrollIntoView) editor.scrollIntoView({ block: "nearest" });
 }
 
-function deliRenderItemModal() {
-  var draft = deliDraft;
-  if (!draft) return;
-  var item = deliFind(draft.itemId);
-  if (!item || !DeliCounter.isOrderable(item, deliThreshold())) {
-    deliDraft = null;
-    openModal("<h3>That item is out of stock</h3><p>It just sold through. Please pick something else.</p>" +
-      '<div class="modal-actions"><button class="btn" onclick="closeModal()">OK</button></div>');
-    return;
-  }
-  var choices = DeliCounter.weightChoices(item.lbsOnHand);
-  var quick = choices.filter(function (weight) { return weight <= 1; });
-  var catClass = "mc-cat-" + item.category;
-  openModal("<h3>" + escHtml(item.emoji || "") + " " + escHtml(item.displayName || item.name) + "</h3>" +
-    '<p class="mc-public-intro">' + escHtml(DeliCounter.formatWeight(item.lbsOnHand)) + " lb on hand · $" +
-    Number(item.pricePerLb || 0).toFixed(2) + "/lb. Pay at pickup.</p>" +
-    '<div class="field"><label>Amount</label><div class="deli-weight-row">' +
-    quick.map(function (weight) {
-      var on = Math.abs(weight - draft.weightLbs) < 1e-9 ? " is-on" : "";
-      return '<button type="button" class="deli-weight-chip' + on + '" onclick="deliPickWeight(' + weight + ')">' +
-        escHtml(DeliCounter.formatWeight(weight)) + " lb</button>";
-    }).join("") + "</div>" +
-    (choices.length > quick.length
-      ? '<select id="deli-weight-more" onchange="deliPickWeight(Number(this.value))">' +
-        choices.map(function (weight) {
-          return '<option value="' + weight + '"' + (Math.abs(weight - draft.weightLbs) < 1e-9 ? " selected" : "") + ">" +
-            escHtml(DeliCounter.formatWeight(weight)) + " lb</option>";
-        }).join("") + "</select>"
-      : "") +
-    "</div>" +
-    '<div class="field"><label>Slice</label><div class="mc-slice-grid">' +
-    DeliCounter.SLICE_STYLES.map(function (style) {
-      var on = draft.sliceStyle === style.id ? " is-on" : "";
-      return '<button type="button" class="mc-slice-btn' + on + '" onclick="deliPickSlice(\'' + style.id + '\')">' +
-        mcSliceIconHTML(style.id, catClass) + "<span>" + escHtml(style.label) + "</span></button>";
-    }).join("") + "</div></div>" +
-    '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
-    escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
-    (item.notes ? '<p class="deli-notes">' + escHtml(item.notes) + "</p>" : "") +
-    '<div class="modal-actions"><button class="btn outline" onclick="deliDraft=null;closeModal()">Cancel</button>' +
-    '<button class="btn" onclick="deliAddDraft()">Add to slip</button></div>');
+function deliOpenGroupedPicker() {
+  deliDraft = null;
+  deliEnsureCheckout();
+  deliRenderOrderDialog();
 }
 
 function deliOpenItem(id) {
   var item = deliFind(id);
   if (!item) return;
-  var choices = DeliCounter.weightChoices(item.lbsOnHand);
+  deliCaptureDialog();
+  deliEnsureCheckout();
   deliDraft = {
     itemId: id,
-    weightLbs: choices[0] || 0,
-    sliceStyle: "medium",
-    note: "",
+    weightLbs: 0.25,
+    sliceStyle: deliDraft && deliDraft.itemId === id ? deliDraft.sliceStyle : "medium",
+    note: deliDraft && deliDraft.itemId === id ? deliDraft.note : "",
   };
-  deliRenderItemModal();
+  deliRenderOrderDialog();
 }
 
 function deliPickWeight(weight) {
   if (!deliDraft) return;
-  var note = document.getElementById("deli-line-note");
-  if (note) deliDraft.note = note.value;
+  deliCaptureDialog();
   deliDraft.weightLbs = weight;
-  deliRenderItemModal();
+  deliRenderOrderDialog();
+}
+
+function deliWeightTyped(value) {
+  if (!deliDraft) return;
+  deliDraft.weightLbs = value;
+  var message = deliDraftMessage();
+  var el = document.getElementById("deli-stock-error");
+  if (el) {
+    el.hidden = !message;
+    el.textContent = message;
+  }
+  var add = document.getElementById("deli-add-line");
+  if (add) add.disabled = !!message;
 }
 
 function deliPickSlice(styleId) {
   if (!deliDraft) return;
-  var note = document.getElementById("deli-line-note");
-  if (note) deliDraft.note = note.value;
+  deliCaptureDialog();
   deliDraft.sliceStyle = styleId;
-  deliRenderItemModal();
+  deliRenderOrderDialog();
 }
 
 function deliAddDraft() {
+  deliCaptureDialog();
   if (!deliDraft) return;
-  var note = document.getElementById("deli-line-note");
-  if (note) deliDraft.note = note.value;
+  if (deliDraftMessage()) return;
   if (deliSlip.length >= 8) {
     alert("An online deli order can have up to 8 items. Call the store for a larger order.");
     return;
   }
   deliSlip.push({
     itemId: deliDraft.itemId,
-    weightLbs: deliDraft.weightLbs,
+    weightLbs: Number(deliDraft.weightLbs),
     sliceStyle: deliDraft.sliceStyle,
     note: deliDraft.note || "",
   });
   deliDraft = null;
-  closeModal();
+  deliRenderOrderDialog();
   deliRenderSlip();
-}
-
-function deliRenderCheckout() {
-  var state = deliCheckout;
-  if (!state) return;
-  var now = new Date();
-  var closed = db.closedDates || [];
-  var dates = DeliCounter.pickupDates(now, closed, 21);
-  if (state.date && dates.indexOf(state.date) === -1) state.date = dates[0] || "";
-  var times = state.date ? DeliCounter.pickupTimes(state.date, now, closed) : [];
-  if (state.time && times.indexOf(state.time) === -1) state.time = times[0] || "";
-  openModal("<h3>Deli pickup</h3>" +
-    '<p class="mc-public-intro">No payment here. You pay at the counter when you pick up. Meat &amp; cheese hours are Mon–Fri 9–4 and Sat 9–2.</p>' +
-    '<div class="field"><label>Name</label><input type="text" id="deli-name" value="' + escHtmlAttr(state.name) + '"></div>' +
-    '<div class="field"><label>Phone</label><input type="tel" id="deli-phone" value="' + escHtmlAttr(state.phone) + '"></div>' +
-    '<div class="field"><label>Pickup date</label><select id="deli-date" onchange="deliCheckoutDate(this.value)">' +
-    (dates.length ? dates.map(function (iso) {
-      return '<option value="' + iso + '"' + (iso === state.date ? " selected" : "") + ">" + iso + "</option>";
-    }).join("") : '<option value="">No open days</option>') + "</select></div>" +
-    '<div class="field"><label>Pickup time</label><select id="deli-time">' +
-    times.map(function (time) {
-      return '<option value="' + time + '"' + (time === state.time ? " selected" : "") + ">" +
-        escHtml(formatTime12hr(time)) + "</option>";
-    }).join("") + "</select></div>" +
-    '<div class="field"><label>Note for the counter</label><textarea id="deli-order-note" maxlength="300">' +
-    escHtml(state.notes || "") + "</textarea></div>" +
-    '<div class="modal-actions"><button class="btn outline" onclick="closeModal()">Back</button>' +
-    '<button class="btn" id="deli-place-btn" onclick="deliSubmitOrder()">Place pickup order</button></div>');
 }
 
 function deliReadCheckout() {
@@ -287,27 +386,16 @@ function deliReadCheckout() {
 }
 
 function deliCheckoutDate(iso) {
-  deliReadCheckout();
+  deliCaptureDialog();
   deliCheckout.date = iso;
   deliCheckout.time = "";
-  deliRenderCheckout();
+  deliRenderOrderDialog();
 }
 
 function deliOpenCheckout() {
   if (!deliSlip.length) return;
-  var account = null;
-  if (typeof localCustomerSession !== "undefined" && localCustomerSession && typeof loadCustomerAccounts === "function") {
-    account = loadCustomerAccounts()[localCustomerSession.phone] || null;
-  }
-  var dates = DeliCounter.pickupDates(new Date(), db.closedDates || [], 21);
-  deliCheckout = {
-    name: account && account.name ? account.name : "",
-    phone: localCustomerSession ? localCustomerSession.phone : "",
-    date: dates[0] || "",
-    time: "",
-    notes: "",
-  };
-  deliRenderCheckout();
+  deliEnsureCheckout();
+  deliRenderOrderDialog();
 }
 
 function deliShowConfirmation(order) {
@@ -340,7 +428,9 @@ function deliSubmitOrder() {
     }),
   });
   if (!built.ok) {
-    alert(built.error);
+    var stockText = deliSlipProblems().map(function (problem) { return problem.message; }).join(" ");
+    alert(stockText || built.error);
+    deliRenderOrderDialog();
     return;
   }
   var closureMessage = "";
@@ -374,7 +464,12 @@ function deliSubmitOrder() {
     deliRenderSlip();
   }).catch(function (err) {
     console.error("Save deli order failed:", err);
-    alert("Something went wrong submitting your order — please check your connection and try again.");
+    var denied = err && (err.code === "permission-denied" || /permission-denied/i.test(String(err.message || err)));
+    var stockText = deliSlipProblems().map(function (problem) { return problem.name + ": " + problem.message; }).join(" ");
+    alert(denied
+      ? (stockText || "Sorry, we don't have enough to fill this order. Please lower a weight and try again.")
+      : "Something went wrong submitting your order — please check your connection and try again.");
+    deliRenderOrderDialog();
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Place pickup order";
@@ -466,8 +561,6 @@ function deliManageRows(items) {
 
 function deliManageRowHTML(item) {
   return '<div class="search-panel-row deli-manage-row"><span><strong>' + escHtml(item.displayName || item.name) + "</strong>" +
-    (item.toastName && item.toastName !== (item.displayName || item.name)
-      ? '<span class="mc-public-brand"> ' + escHtml(item.toastName) + "</span>" : "") +
     "<br><span class=\"mc-public-tile-sub\">" + escHtml(DeliCounter.formatWeight(item.lbsOnHand || 0)) + " lb · $" +
     Number(item.pricePerLb || item.price || 0).toFixed(2) + "/lb · " + escHtml(deliStatusLabel(item)) +
     (item.category === "meat" ? " · " + escHtml(DeliCounter.MEAT_LABELS[DeliCounter.meatTypeOf ? DeliCounter.meatTypeOf(item) : item.meatType] || item.meatType || "") : "") +
