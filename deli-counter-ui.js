@@ -45,9 +45,12 @@ function deliFind(id) {
 
 function deliOnlineLabel(item) {
   if (!item || item.catalog !== "counter") return "";
+  if (item.removed) return "removed";
+  if (item.hiddenOnline) return "hidden from site";
+  if (item.notOfferedOnline || (typeof DeliCounter.isChippedMeat === "function" && DeliCounter.isChippedMeat(item))) return "not on site";
   if (item.discontinued || DeliCounter.availabilityOf(item) === "discontinued") return "discontinued";
-  if (DeliCounter.isOrderable(item, deliThreshold())) {
-    return "online " + DeliCounter.formatWeight(item.lbsOnHand) + " lb";
+  if (DeliCounter.isOrderable(item, deliThreshold(), deliRuntimeSettings())) {
+    return "on the site";
   }
   return "online out";
 }
@@ -546,7 +549,7 @@ function deliSubmitOrder() {
 function deliCounterToolbarHTML() {
   var hasCounter = (db.meatCheeseItems || []).some(function (item) { return item.catalog === "counter"; });
   var canEdit = typeof canManageOnlineDeli === "function" ? canManageOnlineDeli() : !!(session && session.isMaster);
-  return '<div class="mc-counter-tools"><p class="mc-case-note">The tiles are the physical case. The online menu — names, prices, icons, and what customers can order — is under Manage online deli. Import does not rearrange these slots.</p>' +
+  return '<div class="mc-counter-tools"><p class="mc-case-note">Tap a filled tile to weigh the pieces, or to take that item off the customer website. Manage online deli is the full list. Import does not rearrange these slots.</p>' +
     '<div class="mc-counter-actions">' +
     '<button type="button" class="btn" onclick="deliManageOnline()">Manage online deli</button>' +
     (canEdit ? '<button type="button" class="btn small outline" onclick="deliPickCsv()">Import Toast CSV</button>' +
@@ -664,6 +667,19 @@ function deliWidenModal() {
 }
 
 function deliManageOnline() {
+  if (deliPublicPhase() === "loading") {
+    openModal('<h3>Manage online deli</h3><div id="deli-manage-loading">' +
+      (typeof marketLoadingHTML === "function" ? marketLoadingHTML("Loading the online menu") : '<p class="empty-note">Loading the online menu</p>') +
+      "</div>");
+    deliWidenModal();
+    return;
+  }
+  if (deliPublicPhase() === "error") {
+    openModal('<h3>Manage online deli</h3>' +
+      (typeof marketErrorHTML === "function" ? marketErrorHTML("Couldn't load the online menu. Check your connection and refresh.") : '<p class="empty-note">Couldn\'t load the online menu.</p>'));
+    deliWidenModal();
+    return;
+  }
   var canEdit = canEditOnlineDeli();
   var settings = deliRuntimeSettings();
   var items = deliManageRows((db.meatCheeseItems || []).filter(function (item) {
@@ -694,11 +710,15 @@ function deliManageOnline() {
   if (deliManageFilter !== "meat" && cheeses.length) {
     list += '<h3 class="mc-group-head">Cheese</h3>' + cheeses.map(deliManageRowHTML).join("");
   }
-  if (!list) list = '<p class="empty-note">Nothing matches that search.</p>';
+  if (!list) {
+    list = deliManageSearch.trim()
+      ? '<p class="empty-note">Nothing matches that search.</p>'
+      : '<p class="empty-note">Nothing on the online menu yet.</p>';
+  }
   openModal('<h3>Manage online deli</h3>' +
     (deliManageNotice ? '<p class="deli-saved">' + escHtml(deliManageNotice) + "</p>" : "") +
     (canEdit
-      ? '<p class="mc-public-intro">Add an item, change its name, price, icon, or pounds, or hide it from the website. The case grid below this window is only the shelf.</p>'
+      ? '<p class="mc-public-intro">Add an item, change its name, price, or pounds, or hide it from the website. A filled case tile can hide it too.</p>'
       : '<p class="mc-public-intro">You can look through the online menu. Only a manager can change it. Orders are on the Orders tab.</p>') +
     '<div class="mc-counter-actions">' +
     '<button type="button" class="btn small' + (deliManageFilter === "" ? "" : " outline") + '" onclick="deliManageFilter=\'\'; deliManageOnline()">All</button>' +
@@ -724,6 +744,46 @@ function deliManageOnline() {
     search.focus();
     search.setSelectionRange(search.value.length, search.value.length);
   }
+}
+
+function deliRefreshManageIfWaiting() {
+  if (!document.getElementById("deli-manage-loading")) return;
+  if (deliPublicPhase() === "loading") return;
+  deliManageOnline();
+}
+
+var deliConfirmAction = null;
+
+function deliAskConfirm(message, onYes) {
+  var slot = document.getElementById("deli-confirm-slot");
+  if (!slot) return;
+  deliConfirmAction = onYes;
+  slot.hidden = false;
+  slot.innerHTML = "<p>" + escHtml(message) + "</p>" +
+    '<div class="modal-actions"><button type="button" class="btn outline" onclick="deliConfirmNo()">Cancel</button>' +
+    '<button type="button" class="btn" onclick="deliConfirmYes()">Yes</button></div>';
+}
+
+function deliConfirmYes() {
+  var fn = deliConfirmAction;
+  deliConfirmAction = null;
+  deliConfirmNo();
+  if (fn) fn();
+}
+
+function deliConfirmNo() {
+  deliConfirmAction = null;
+  var slot = document.getElementById("deli-confirm-slot");
+  if (!slot) return;
+  slot.hidden = true;
+  slot.innerHTML = "";
+}
+
+function deliEditMessage(text) {
+  var el = document.getElementById("deli-edit-msg");
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text || "";
 }
 
 function deliClockLabel(value) {
@@ -770,6 +830,7 @@ function deliSettingsFields(settings) {
     '<div class="field"><label>Saturday pickup until</label><input id="deli-set-sat-close" type="time" value="' + deliTimeValue(settings.storeCloseSaturday, "14:00") + '"></div>' +
     "</div>" +
     '<div class="field"><label>Hours text on the website</label><textarea id="deli-set-copy">' + escHtml(settings.hoursCopy || DeliCounter.HOURS_COPY) + "</textarea></div>" +
+    '<p id="deli-settings-msg" class="deli-inline-error" hidden></p>' +
     '<button type="button" class="btn small outline" onclick="deliDraftHoursSentence()">Write the sentence from these times</button> ' +
     '<button type="button" class="btn" onclick="deliSaveSettings()">Save settings</button></div>';
 }
@@ -812,6 +873,7 @@ function deliEditItem(id, newCategory) {
   var iconKey = item && item.iconKey ? item.iconKey : "";
   var chipped = !!(item && DeliCounter.isChippedMeat(item));
   openModal("<h3>" + (item ? "Edit " + escHtml(item.displayName || item.name) : "Add a " + (category === "cheese" ? "cheese" : "meat")) + "</h3>" +
+    '<div class="deli-edit-body">' +
     '<div class="field"><label>Friendly name</label><input id="deli-edit-name" type="text" value="' + escHtmlAttr(item ? item.displayName || item.name || "" : "") + '"></div>' +
     (category === "meat"
       ? '<div class="field"><label>Group</label><select id="deli-edit-type">' +
@@ -830,20 +892,23 @@ function deliEditItem(id, newCategory) {
     '<option value="in"' + (availability === "in" ? " selected" : "") + ">Force in stock while any weight remains</option>" +
     '<option value="out"' + (availability === "out" ? " selected" : "") + ">Force out of stock</option>" +
     "</select></div>" +
-    '<label class="deli-check"><input id="deli-edit-hidden" type="checkbox"' + (item && item.hiddenOnline ? " checked" : "") + "> Hide online for now</label>" +
+    '<label class="deli-check"><input id="deli-edit-hidden" type="checkbox"' + (item && item.hiddenOnline ? " checked" : "") + "> Hide online for now. This takes it off the customer site.</label>" +
     '<label class="deli-check"><input id="deli-edit-offline" type="checkbox"' + (chipped || (item && item.notOfferedOnline) ? " checked" : "") + (chipped ? " disabled" : "") + "> Not offered online (stays off after imports)</label>" +
     (chipped ? '<p class="mc-public-intro">Chipped Meat stays off the website. The order rules keep that safety check even if this box is cleared.</p>' : "") +
     (item && DeliCounter.availabilityOf(item) === "discontinued" ? '<p class="mc-public-intro">This item is discontinued. Use Restore to put it back.</p>' : "") +
     '<div class="field"><label>Icon</label>' + deliIconPickerHTML(iconKey) + "</div>" +
-    '<div class="field"><label>Notes</label><textarea id="deli-edit-notes">' + escHtml(item ? item.notes || "" : "") + "</textarea></div>" +
-    '<p id="deli-edit-msg" class="deli-saved" hidden></p>' +
+    '<div class="field"><label>Notes</label><textarea id="deli-edit-notes">' + escHtml(item ? item.notes || "" : "") + "</textarea></div></div>" +
+    '<div class="deli-edit-actions">' +
+    '<div id="deli-confirm-slot" class="deli-confirm" hidden></div>' +
+    '<p id="deli-edit-msg" class="deli-inline-error" hidden></p>' +
     '<div class="modal-actions">' +
+    '<button type="button" class="btn deli-save-btn" onclick="deliSaveEdited(\'' + (id || "") + '\',\'' + category + '\')">Save</button>' +
     '<button type="button" class="btn outline" onclick="deliManageOnline()">Back</button>' +
-    (item ? '<button type="button" class="btn outline" onclick="deliSetAvailability(\'' + id + '\',\'discontinued\')">' +
+    (item ? '<button type="button" class="btn outline" onclick="deliAskDiscontinue(\'' + id + '\')">' +
       (DeliCounter.availabilityOf(item) === "discontinued" ? "Restore" : "Discontinue") + "</button>" : "") +
-    (item && !item.removed ? '<button type="button" class="btn danger" onclick="deliSoftRemove(\'' + id + '\')">Remove</button>' : "") +
+    (item && !item.removed ? '<button type="button" class="btn danger" onclick="deliAskRemove(\'' + id + '\')">Remove</button>' : "") +
     (item && item.removed ? '<button type="button" class="btn outline" onclick="deliRestoreRemoved(\'' + id + '\')">Restore</button>' : "") +
-    '<button type="button" class="btn" onclick="deliSaveEdited(\'' + (id || "") + '\',\'' + category + '\')">Save</button></div>');
+    "</div></div>");
   deliWidenModal();
 }
 
@@ -888,20 +953,20 @@ function deliSaveEdited(id, category) {
   var existing = id ? deliFind(id) : null;
   var displayName = document.getElementById("deli-edit-name").value.trim();
   if (!displayName) {
-    alert("Enter a friendly name.");
+    deliEditMessage("Enter a friendly name.");
     return;
   }
   var price = Number(document.getElementById("deli-edit-price").value);
   if (!isFinite(price) || price < 0) {
-    alert("Enter a price per pound.");
+    deliEditMessage("Enter a price per pound.");
     return;
   }
+  deliEditMessage("");
   var availability = document.getElementById("deli-edit-availability").value;
   if (["auto", "in", "out"].indexOf(availability) === -1) return;
   if (existing && DeliCounter.availabilityOf(existing) === "discontinued") availability = "discontinued";
   var meatType = category === "cheese" ? "" : document.getElementById("deli-edit-type").value;
   if (category !== "cheese" && DeliCounter.MEAT_TYPES.indexOf(meatType) === -1) return;
-  if (!confirm("Save " + displayName + " on the online menu?")) return;
   var record = deliCounterRecord(existing, {
     id: existing ? existing.id : newId("mci"),
     category: category,
@@ -932,37 +997,65 @@ function deliSaveEdited(id, category) {
     deliManageOnline();
   }).catch(function (err) {
     console.error("Save deli item failed:", err);
-    alert("Couldn't save that item. If this is a new login, the Firestore rules may still need to be deployed.");
+    deliEditMessage("Couldn't save that item. If this is a new login, the Firestore rules may still need to be deployed.");
   });
 }
 
-function deliPatchItem(id, patch, notice) {
+function deliPatchItem(id, patch, notice, options) {
   var item = deliFind(id);
   if (!item || !canEditOnlineDeli()) return;
   var record = deliCounterRecord(item, patch);
+  var backToCase = options && options.returnTo === "case";
   deliPersistItems([record]).then(function () {
     deliManageNotice = notice;
     if (typeof renderMeatCheesePublic === "function") renderMeatCheesePublic();
-    deliManageOnline();
+    if (typeof renderPortalBody === "function") renderPortalBody();
+    if (backToCase) closeModal();
+    else deliManageOnline();
   }).catch(function (err) {
     console.error(err);
-    alert("Couldn't update that item.");
+    var slot = document.getElementById("deli-confirm-slot");
+    if (slot) {
+      slot.hidden = false;
+      slot.innerHTML = '<p class="deli-inline-error">Couldn\'t update that item.</p>';
+    }
   });
 }
 
-function deliSetAvailability(id, availability) {
+function deliAskDiscontinue(id) {
   var item = deliFind(id);
   if (!item) return;
   var restoring = DeliCounter.availabilityOf(item) === "discontinued";
-  if (!confirm(restoring ? "Put this back on the online menu when it is in stock?" : "Discontinue this? It stays off the website, even after a Toast import. You can restore it later.")) return;
-  deliPatchItem(id, { availability: restoring ? "auto" : "discontinued" }, restoring ? "Restored." : "Discontinued.");
+  deliAskConfirm(
+    restoring
+      ? "Put this back on the website when it is in stock?"
+      : "Discontinue this? It stays off the website, even after a Toast import.",
+    function () {
+      deliPatchItem(id, { availability: restoring ? "auto" : "discontinued" }, restoring ? "Restored." : "Discontinued. It's off the website.");
+    }
+  );
 }
 
-function deliSoftRemove(id) {
+function deliAskRemove(id) {
   var item = deliFind(id);
   if (!item) return;
-  if (!confirm("Remove " + (item.displayName || item.name) + "? Past orders keep the name. You can restore it under Removed.")) return;
-  deliPatchItem(id, { removed: true }, "Removed. Past orders are unchanged.");
+  deliAskConfirm(
+    "Remove " + (item.displayName || item.name) + "? Past orders keep the name. You can restore it under Removed.",
+    function () { deliPatchItem(id, { removed: true }, "Removed. Past orders are unchanged."); }
+  );
+}
+
+function deliAskHide(id) {
+  var item = deliFind(id);
+  if (!item) return;
+  deliAskConfirm(
+    "Hide " + (item.displayName || item.name) + "? It comes off the customer website. The case pieces stay.",
+    function () { deliPatchItem(id, { hiddenOnline: true }, "Hidden. It's off the website.", { returnTo: "case" }); }
+  );
+}
+
+function deliShowOnline(id) {
+  deliPatchItem(id, { hiddenOnline: false }, "It's back on the website when it is in stock.", { returnTo: "case" });
 }
 
 function deliRestoreRemoved(id) {
@@ -973,10 +1066,15 @@ function deliSaveSettings() {
   if (!canEditOnlineDeli()) return;
   var threshold = Number(document.getElementById("deli-set-threshold").value);
   var meatMin = Number(document.getElementById("deli-set-min").value);
+  var settingsMsg = document.getElementById("deli-settings-msg");
   if (!isFinite(threshold) || threshold < 0 || threshold > 5 || !isFinite(meatMin) || meatMin <= 0 || meatMin > 5) {
-    alert("Check the out-of-stock threshold and the meat minimum.");
+    if (settingsMsg) {
+      settingsMsg.hidden = false;
+      settingsMsg.textContent = "Check the out-of-stock threshold and the meat minimum.";
+    }
     return;
   }
+  if (settingsMsg) settingsMsg.hidden = true;
   var next = {
     outOfStockAtLbs: DeliCounter.normalizeLbs(threshold),
     meatMinLbs: DeliCounter.normalizeLbs(meatMin),
@@ -987,7 +1085,6 @@ function deliSaveSettings() {
     storeCloseSaturday: document.getElementById("deli-set-sat-close").value || "14:00",
     hoursCopy: document.getElementById("deli-set-copy").value.trim() || DeliCounter.HOURS_COPY,
   };
-  if (!confirm("Save these hours and stock settings?")) return;
   db.deliCounter = Object.assign({}, db.deliCounter, next);
   var stockUpdates = DeliCounter.recomputeAutoStock(db.meatCheeseItems || [], next.outOfStockAtLbs).map(function (update) {
     var item = deliFind(update.id);
@@ -1002,7 +1099,10 @@ function deliSaveSettings() {
     deliManageOnline();
   }).catch(function (err) {
     console.error(err);
-    alert("Couldn't save settings.");
+    if (settingsMsg) {
+      settingsMsg.hidden = false;
+      settingsMsg.textContent = "Couldn't save settings.";
+    }
   });
 }
 
@@ -1020,7 +1120,8 @@ function deliCsvChosen(file) {
       parsed = DeliCounter.getPosAdapter("toast-csv").parse(String(reader.result || ""));
     } catch (err) {
       console.error(err);
-      alert("That file could not be read as a Toast item export.");
+      openModal('<h3>Import Toast items</h3><p>That file could not be read as a Toast item export.</p>' +
+        '<div class="modal-actions"><button type="button" class="btn" onclick="closeModal()">Close</button></div>');
       return;
     }
     var merged = DeliCounter.applyPosRows(db.meatCheeseItems || [], parsed.accepted, { threshold: deliThreshold(), seed: false });
@@ -1047,13 +1148,14 @@ function deliCommitImport() {
   var items = deliImportPending.merged.map(function (row) { return row.item; });
   deliImportPending = null;
   deliPersistItems(items).then(function () {
-    closeModal();
+    deliManageNotice = "Imported " + items.length + " deli items.";
     if (typeof renderPortalBody === "function") renderPortalBody();
     if (typeof renderMeatCheesePublic === "function") renderMeatCheesePublic();
-    alert("Imported " + items.length + " deli items.");
+    deliManageOnline();
   }).catch(function (err) {
     console.error("Deli import failed:", err);
-    alert("The import didn't save. If you just updated the site, the Firestore rules may still need to be deployed.");
+    openModal('<h3>Import didn\'t save</h3><p>If you just updated the site, the Firestore rules may still need to be deployed.</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" onclick="closeModal()">Close</button></div>');
   });
 }
 
@@ -1070,12 +1172,22 @@ function deliApplyStarter(silent) {
     deliSeedInFlight = false;
     if (silent) deliSeedFailed = true;
     console.error(err);
-    if (!silent) alert("Couldn't load the starter stock.");
+    if (!silent) {
+      openModal('<h3>Starter stock</h3><p>Couldn\'t load the starter stock.</p>' +
+        '<div class="modal-actions"><button type="button" class="btn" onclick="closeModal()">Close</button></div>');
+    }
   });
 }
 
 function deliLoadStarter() {
-  if (!confirm("Load the starter deli list from the last Toast export? Existing case items with the same name are updated in place. Slots are not moved.")) return;
+  openModal('<h3>Load starter stock</h3>' +
+    '<p>Load the starter deli list from the last Toast export? Existing case items with the same name are updated in place. Slots are not moved.</p>' +
+    '<div class="modal-actions"><button type="button" class="btn outline" onclick="closeModal()">Cancel</button>' +
+    '<button type="button" class="btn" onclick="deliConfirmStarter()">Yes, load it</button></div>');
+}
+
+function deliConfirmStarter() {
+  closeModal();
   deliSeedFailed = false;
   deliSeedInFlight = false;
   deliApplyStarter(false);

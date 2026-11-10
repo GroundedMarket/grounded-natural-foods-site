@@ -763,7 +763,18 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 #deli-weight-more{ display:block; margin-top:8px; max-width:220px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); font-family:var(--font-mono); }
 .deli-slip{ margin-top:8px; }
 .deli-slip-line{ display:flex; justify-content:space-between; gap:8px; align-items:center; padding:6px 0; border-bottom:1px dashed var(--line); font-family:var(--font-mono); font-size:14px; }
-.deli-manage-modal{ max-width:640px; }
+.deli-manage-modal{ max-width:640px; display:flex; flex-direction:column; overflow:hidden; }
+.deli-edit-body{ overflow-y:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+.deli-edit-actions{ flex:0 0 auto; background:var(--paper); border-top:1px solid var(--line); padding-top:12px; margin-top:8px; }
+.deli-edit-actions .modal-actions{ margin-top:0; }
+.deli-save-btn{ background:var(--green-deep); color:var(--paper); -webkit-text-fill-color:currentcolor; }
+.deli-confirm{ background:var(--parchment); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+.deli-confirm p{ margin:0 0 8px; }
+.deli-inline-error{ color:var(--red-flag); margin:0 0 8px; }
+@media (max-width:900px){
+  .deli-edit-actions .modal-actions{ flex-direction:column; }
+  .deli-edit-actions .modal-actions .btn{ width:100%; }
+}
 .deli-manage-row{ display:flex; justify-content:space-between; gap:8px; align-items:center; }
 .deli-manage-name{ display:flex; gap:8px; align-items:center; min-width:0; }
 .deli-manage-name .mc-deli-icon{ width:26px; height:26px; }
