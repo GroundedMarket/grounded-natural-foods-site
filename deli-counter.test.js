@@ -174,8 +174,31 @@ test("weight choices stay on quarter pounds and never pass what is on hand", () 
   assert.deepEqual(DC.weightChoices(1), [0.25, 0.5, 0.75, 1]);
   assert.deepEqual(DC.weightChoices(0.3), [0.25]);
   assert.deepEqual(DC.weightChoices(0), []);
-  assert.equal(DC.formatWeight(0.25), "1/4");
-  assert.equal(DC.formatWeight(1.5), "1 1/2");
+  assert.equal(DC.formatWeight(0.25), "0.25");
+  assert.equal(DC.formatWeight(1.5), "1.5");
+  assert.equal(DC.formatWeight(8.75), "8.75");
+  assert.equal(DC.formatWeight(37.445), "37.445");
+  assert.equal(
+    DC.stockMessage(0.87, 2),
+    "Sorry, we don't have enough to fill this order. We have about 0.87 lb on hand."
+  );
+  assert.equal(DC.stockMessage(2, 0.5), "");
+});
+
+test("public meats are only chicken, turkey, ham, and beef", () => {
+  const items = catalog();
+  const asiago = items.filter((item) => /asiago mild/i.test(item.toastName));
+  assert.equal(asiago.length, 2);
+  asiago.forEach((item) => assert.equal(DC.isOrderable(item, 0.25), false));
+  const pepperoni = items.find((item) => /pepperoni/i.test(item.toastName));
+  assert.equal(pepperoni.meatType, "other");
+  const grouped = DC.groupCatalog(items, 0.25, { publicOnly: true });
+  const meatNames = grouped.meats.flatMap((group) => group.items.map((item) => item.displayName));
+  const cheeseNames = grouped.cheeses.map((item) => item.displayName);
+  assert.deepEqual(grouped.meats.map((group) => group.type), ["chicken", "turkey", "ham", "beef"]);
+  assert.equal(meatNames.some((name) => /pepperoni|salami|pastrami turkey/i.test(name)), false);
+  assert.equal(cheeseNames.some((name) => /asiago/i.test(name)), false);
+  assert.equal(grouped.cheeses.filter((item) => /asiago/i.test(item.displayName)).length, 0);
 });
 
 test("pickup rejects Sundays, closed days, and times outside counter hours", () => {

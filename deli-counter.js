@@ -207,15 +207,21 @@ function availabilityOf(item) {
     return out;
   }
 
+  /* One decimal style everywhere: 8.75, 0.25, 37.445. No mixed fractions. */
   function formatWeight(n) {
     var q = normalizeLbs(n);
-    var whole = Math.floor(q + 1e-9);
-    var frac = normalizeLbs(q - whole);
-    var fracLabel = { 0.25: "1/4", 0.5: "1/2", 0.75: "3/4" };
-    if (whole && fracLabel[frac]) return whole + " " + fracLabel[frac];
-    if (!whole && fracLabel[frac]) return fracLabel[frac];
-    if (Math.abs(q - Math.round(q)) < 1e-9) return String(Math.round(q));
-    return String(q);
+    if (!isFinite(q)) return "0";
+    return q.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  function stockMessage(onHand, requested) {
+    var want = Number(requested);
+    if (!isFinite(want) || want <= 0) return "";
+    var have = normalizeLbs(onHand);
+    if (want > have + 1e-9) {
+      return "Sorry, we don't have enough to fill this order. We have about " + formatWeight(have) + " lb on hand.";
+    }
+    return "";
   }
 
   function byDisplayName(a, b) {
@@ -254,6 +260,7 @@ function availabilityOf(item) {
     });
     var meats = [];
     MEAT_TYPES.forEach(function (type) {
+      if (publicOnly && type === "other") return;
       var list = buckets[type].slice().sort(byDisplayName);
       if (!list.length) return;
       meats.push({ type: type, label: MEAT_LABELS[type], items: list });
@@ -760,7 +767,7 @@ function seedAvailability(row, threshold) {
       if (requested[item.id] - normalizeLbs(item.lbsOnHand) > 1e-9) {
         return {
           ok: false,
-          error: "That's more " + (item.displayName || item.name) + " than we have on hand (" + formatWeight(item.lbsOnHand) + " lb).",
+          error: stockMessage(item.lbsOnHand, requested[item.id]) || "Sorry, we don't have enough to fill this order.",
         };
       }
       var style = SLICE_STYLES.filter(function (entry) { return entry.id === line.sliceStyle; })[0];
@@ -856,6 +863,7 @@ function seedAvailability(row, threshold) {
     isOrderable: isOrderable,
     weightChoices: weightChoices,
     formatWeight: formatWeight,
+    stockMessage: stockMessage,
     groupCatalog: groupCatalog,
     parseToastExportCsv: parseToastExportCsv,
     registerPosAdapter: registerPosAdapter,
