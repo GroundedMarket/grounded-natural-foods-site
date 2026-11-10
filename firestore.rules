@@ -171,7 +171,7 @@ service cloud.firestore {
         && item.weightLbs is number
         && item.weightLbs > 0
         && item.weightLbs <= 30
-        && item.sliceStyle in ['chipped', 'shaved', 'thin', 'medium', 'large', 'thick']
+        && item.sliceStyle in ['shaved', 'thin', 'medium', 'large', 'thick']
         && item.sliceStyleLabel is string
         && item.note is string
         && item.note.size() <= 140
@@ -186,7 +186,10 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.inStock == true
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.discontinued == false
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.lbsOnHand >= item.weightLbs
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.pricePerLb == item.pricePerLb;
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.pricePerLb == item.pricePerLb
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.toastName != 'Chipped Meat'
+        && (get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.category != 'meat'
+          || item.weightLbs >= 0.25);
     }
     function deliLinesOk(items) {
       return items.size() >= 1

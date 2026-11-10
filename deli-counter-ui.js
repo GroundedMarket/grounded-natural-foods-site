@@ -74,8 +74,9 @@ function deliTileHTML(item) {
     ? "deliOpenItem('" + item.id + "')"
     : "openMeatCheeseOrderModal('" + item.id + "')";
   var selected = deliDraft && deliDraft.itemId === item.id ? " is-on" : "";
+  var icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
   return '<button type="button" class="mc-public-tile mc-cat-' + item.category + selected + '" onclick="' + open + '">' +
-    '<span class="mc-tile-emoji">' + escHtml(item.emoji || (item.category === "meat" ? "🥩" : "🧀")) + "</span>" +
+    (icon || '<span class="mc-tile-emoji">' + escHtml(item.emoji || (item.category === "meat" ? "🥩" : "🧀")) + "</span>") +
     '<span class="mc-public-tile-info"><strong>' + escHtml(item.displayName || item.name) + "</strong>" +
     '<span class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</span></span></button>";
 }
@@ -189,6 +190,8 @@ function deliDraftMessage() {
   if (!item) return "";
   var weight = Number(deliDraft.weightLbs);
   if (!isFinite(weight) || weight <= 0) return "";
+  var tooSmall = DeliCounter.minimumMessage(item.category, weight);
+  if (tooSmall) return tooSmall;
   return DeliCounter.stockMessage(item.lbsOnHand, deliRequestedFor(item.id, weight));
 }
 
@@ -199,6 +202,13 @@ function deliDraftCanAdd() {
   return !deliDraftMessage();
 }
 
+function deliPresetLabel(weight) {
+  var labels = { 0.25: "1/4 lb", 0.5: "1/2 lb", 0.75: "3/4 lb", 1: "1 lb" };
+  var key = Math.round(Number(weight) * 100) / 100;
+  if (labels[key]) return labels[key];
+  return DeliCounter.formatWeight(weight) + " lb";
+}
+
 function deliEditorHTML() {
   var draft = deliDraft;
   if (!draft) return "";
@@ -207,22 +217,24 @@ function deliEditorHTML() {
   var message = deliDraftMessage();
   var catClass = "mc-cat-" + item.category;
   var quick = [0.25, 0.5, 0.75, 1];
-  var remainder = DeliCounter.normalizeLbs(item.lbsOnHand);
-  if (remainder > 0 && remainder < 0.25 && quick.indexOf(remainder) === -1) quick.unshift(remainder);
+  if (item.category !== "meat") {
+    var remainder = DeliCounter.normalizeLbs(item.lbsOnHand);
+    if (remainder > 0 && remainder < 0.25) quick.unshift(remainder);
+  }
   return '<div class="deli-editor" id="deli-editor">' +
     "<h3>" + escHtml(item.displayName || item.name) + "</h3>" +
     '<p class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</p>" +
-    '<div class="field"><label>Amount (lb)</label><div class="deli-weight-row">' +
+    '<div class="field deli-amount-field"><label>Amount (lb)</label><div class="deli-weight-row">' +
     quick.map(function (weight) {
       var on = Math.abs(Number(draft.weightLbs) - weight) < 1e-9 ? " is-on" : "";
       return '<button type="button" class="deli-weight-chip' + on + '" onclick="deliPickWeight(' + weight + ')">' +
-        escHtml(DeliCounter.formatWeight(weight)) + " lb</button>";
+        escHtml(deliPresetLabel(weight)) + "</button>";
     }).join("") +
-    '</div><input type="number" id="deli-weight-input" min="0" step="0.25" value="' +
+    '</div><div class="deli-weight-entry"><input type="number" id="deli-weight-input" min="0" step="0.25" value="' +
     escHtmlAttr(draft.weightLbs === "" || draft.weightLbs == null ? "" : String(draft.weightLbs)) +
-    '" oninput="deliWeightTyped(this.value)"></div>' +
+    '" oninput="deliWeightTyped(this.value)"><span class="deli-lb-suffix">lb</span></div></div>' +
     (message ? '<p class="deli-stock-error" id="deli-stock-error">' + escHtml(message) + "</p>" : '<p class="deli-stock-error" id="deli-stock-error" hidden></p>') +
-    '<div class="field"><label>Slice</label><div class="mc-slice-grid">' +
+    '<div class="field deli-slice-field"><label>Slice</label><div class="mc-slice-grid">' +
     DeliCounter.SLICE_STYLES.map(function (style) {
       var on = draft.sliceStyle === style.id ? " is-on" : "";
       return '<button type="button" class="mc-slice-btn' + on + '" onclick="deliPickSlice(\'' + style.id + '\')">' +
@@ -263,7 +275,7 @@ function deliCheckoutHTML() {
   if (state.time && times.indexOf(state.time) === -1) state.time = times[0] || "";
   var blocked = deliSlipProblems().length > 0;
   return '<div class="deli-checkout"><h3 class="mc-group-head">Pickup details</h3>' +
-    '<p class="mc-public-intro">No payment here. You pay at the counter. Hours are Mon–Fri 9–4 and Sat 9–2.</p>' +
+    '<p class="mc-public-intro">No payment here. You pay at the counter. ' + escHtml(DeliCounter.HOURS_COPY) + "</p>" +
     '<div class="field"><label>Name</label><input type="text" id="deli-name" value="' + escHtmlAttr(state.name) + '" oninput="deliCheckout.name=this.value"></div>' +
     '<div class="field"><label>Phone</label><input type="tel" id="deli-phone" value="' + escHtmlAttr(state.phone) + '" oninput="deliCheckout.phone=this.value"></div>' +
     '<div class="field"><label>Pickup date</label><select id="deli-date" onchange="deliCheckoutDate(this.value)">' +
@@ -323,7 +335,11 @@ function deliOpenItem(id) {
   deliCaptureDialog();
   deliEnsureCheckout();
   var sameItem = deliDraft && deliDraft.itemId === id;
-  var starting = DeliCounter.defaultOrderWeight(item.lbsOnHand, deliRequestedFor(id, 0));
+  var starting = DeliCounter.defaultOrderWeight(
+    item.lbsOnHand,
+    deliRequestedFor(id, 0),
+    item.category === "meat" ? DeliCounter.MEAT_MIN_LB : 0
+  );
   deliDraft = {
     itemId: id,
     weightLbs: starting == null ? "" : starting,

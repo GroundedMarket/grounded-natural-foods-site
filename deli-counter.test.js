@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const DC = require("./deli-counter.js");
+const Icons = require("./deli-icons.js");
 require("./deli-counter-seed.js");
 
 const catalog = () => DC.starterCatalog(0.25);
@@ -26,7 +27,6 @@ test("public list is the owner's 19 meats and 11 cheeses, grouped and alphabetiz
     "Golden Classic",
     "Honey BBQ",
     "Ichiban Teriyaki",
-    "Lemon Pepper",
   ]);
   assert.deepEqual(names(grouped.meats[1]), [
     "Cajun",
@@ -99,12 +99,22 @@ test("meat type is detected from the Toast name", () => {
   assert.equal(DC.detectMeatType("Pepperoni Metro"), "other");
 });
 
-test("quantities at or under the threshold are out of stock, except seeded Lemon Pepper", () => {
+test("a meat under 1/4 lb is not orderable, including Lemon Pepper", () => {
   const lemon = catalog().find((item) => item.displayName === "Lemon Pepper");
   assert.equal(lemon.lbsOnHand, 0.2);
-  assert.equal(lemon.availability, "in");
-  assert.equal(DC.isOrderable(lemon, 0.25), true);
-  assert.deepEqual(DC.weightChoices(0.2), [0.2]);
+  assert.equal(lemon.availability, "auto");
+  assert.equal(DC.isOrderable(lemon, 0.25), false);
+  assert.equal(DC.minimumMessage("meat", 0.1), "Minimum order is 1/4 lb.");
+  assert.equal(DC.minimumMessage("cheese", 0.1), "");
+  assert.equal(DC.defaultOrderWeight(0.2, 0, 0.25), null);
+  assert.equal(DC.defaultOrderWeight(0.2), 0.2);
+  const chipped = catalog().find((item) => item.toastName === "Chipped Meat");
+  chipped.lbsOnHand = 4;
+  chipped.inStock = true;
+  chipped.availability = "in";
+  assert.equal(DC.isChippedMeat(chipped), true);
+  assert.equal(DC.isOrderable(chipped, 0.25), false);
+  assert.equal(DC.SLICE_STYLES.some((style) => style.id === "chipped"), false);
   assert.equal(DC.effectiveInStock("auto", 0.25, 0.25), false);
   assert.equal(DC.effectiveInStock("auto", 0.26, 0.25), true);
   assert.equal(DC.effectiveInStock("auto", -2, 0.25), false);
@@ -186,6 +196,7 @@ test("weight choices stay on quarter pounds and never pass what is on hand", () 
   assert.equal(DC.defaultOrderWeight(8.75), 1);
   assert.equal(DC.defaultOrderWeight(0.4), 0.25);
   assert.equal(DC.defaultOrderWeight(0.2), 0.2);
+  assert.equal(DC.defaultOrderWeight(0.2, 0, 0.25), null);
   assert.equal(DC.defaultOrderWeight(0.2, 0.2), null);
   assert.equal(DC.defaultOrderWeight(0), null);
 });
@@ -212,8 +223,12 @@ test("pickup rejects Sundays, closed days, and times outside counter hours", () 
   assert.match(DC.validatePickup("2026-11-15", "11:00", { now, closedDates: closed }), /Sunday/);
   assert.match(DC.validatePickup("2026-11-14", "15:00", { now, closedDates: closed }), /Saturday/);
   assert.equal(DC.validatePickup("2026-11-14", "13:00", { now, closedDates: closed }), "");
-  assert.match(DC.validatePickup("2026-11-13", "17:00", { now, closedDates: closed }), /4:00 PM/);
-  assert.equal(DC.validatePickup("2026-11-13", "16:00", { now, closedDates: closed }), "");
+  assert.equal(DC.validatePickup("2026-11-13", "17:00", { now, closedDates: closed }), "");
+  assert.equal(DC.validatePickup("2026-11-13", "18:00", { now, closedDates: closed }), "");
+  assert.match(DC.validatePickup("2026-11-13", "18:15", { now, closedDates: closed }), /6:00 PM/);
+  const afterFour = new Date(2026, 10, 13, 16, 30, 0);
+  assert.equal(DC.pickupDates(afterFour, closed, 4)[0], "2026-11-14");
+  assert.match(DC.validatePickup("2026-11-13", "17:30", { now: afterFour, closedDates: closed }), /after 4/);
   assert.match(DC.validatePickup("2026-11-26", "11:00", { now, closedDates: closed }), /closed/i);
   const dates = DC.pickupDates(now, closed, 21);
   assert.equal(dates.includes("2026-11-15"), false);
@@ -299,4 +314,14 @@ test("quoted CSV commas do not shift the price column, and jerky and trays are s
   assert.equal(parsed.accepted[1].lbsOnHand, 0);
   assert.equal(parsed.accepted[1].quantityRaw, -2.112);
   assert.deepEqual(parsed.skipped.map((row) => row.reason), ["jerky", "category"]);
+});
+
+test("each starter item has its own drawn icon, with a type fallback", () => {
+  const buffalo = Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" });
+  const swiss = Icons.iconFor({ displayName: "Lacey Swiss", category: "cheese" });
+  const fallback = Icons.iconFor({ displayName: "Mystery Roast", category: "meat", meatType: "beef" });
+  assert.match(buffalo, /<svg/);
+  assert.notEqual(buffalo, swiss);
+  assert.match(fallback, /<svg/);
+  assert.equal(Icons.iconFor({ displayName: "Lemon Pepper", category: "meat" }).includes("circle"), true);
 });
