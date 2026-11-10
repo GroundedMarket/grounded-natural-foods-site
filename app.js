@@ -7895,11 +7895,8 @@ function renderMeatCheesePublic() {
   } catch (err) {
     console.error("Meats & cheese public render failed:", err);
   }
-  MC_CATEGORIES.forEach((c) => {
-    const el = document.getElementById(`mc-public-${c.plural}`);
-    if (!el) return;
-    el.innerHTML = '<p class="empty-note">Nothing available right now.</p>';
-  });
+  const el = document.getElementById("mc-public-case");
+  if (el) el.innerHTML = '<p class="empty-note">Nothing available right now.</p>';
 }
 function mcPublicTileHTML(item) {
   return `<div class="mc-public-tile mc-cat-${
