@@ -4,7 +4,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "node --test store-closures.test.js"
+    "test": "node --test store-closures.test.js deli-counter.test.js"
   },
   "dependencies": {
     "escpos": "^3.0.0-alpha.6",
