@@ -272,7 +272,7 @@ function deliEditorHTML() {
     '" oninput="deliWeightTyped(this.value)"><span class="deli-lb-suffix">lb</span></div></div>' +
     (message ? '<p class="deli-stock-error" id="deli-stock-error">' + escHtml(message) + "</p>" : '<p class="deli-stock-error" id="deli-stock-error" hidden></p>') +
     '<div class="field deli-slice-field"><label>Slice</label><div class="mc-slice-grid">' +
-    DeliCounter.SLICE_STYLES.map(function (style) {
+    DeliCounter.sliceStylesFor(item).map(function (style) {
       var on = draft.sliceStyle === style.id ? " is-on" : "";
       return '<button type="button" class="mc-slice-btn' + on + '" onclick="deliPickSlice(\'' + style.id + '\')">' +
         mcSliceIconHTML(style.id, catClass) + "<span>" + escHtml(style.label) + "</span></button>";
@@ -377,10 +377,11 @@ function deliOpenItem(id) {
     deliRequestedFor(id, 0),
     item.category === "meat" ? DeliCounter.MEAT_MIN_LB : 0
   );
+  var incoming = (deliDraft && deliDraft.sliceStyle) || "medium";
   deliDraft = {
     itemId: id,
     weightLbs: starting == null ? "" : starting,
-    sliceStyle: sameItem ? deliDraft.sliceStyle : "medium",
+    sliceStyle: DeliCounter.coerceSlice(item, incoming),
     note: sameItem ? deliDraft.note : "",
   };
   deliRenderOrderDialog();
@@ -408,6 +409,9 @@ function deliWeightTyped(value) {
 
 function deliPickSlice(styleId) {
   if (!deliDraft) return;
+  var item = deliFind(deliDraft.itemId);
+  if (!item) return;
+  if (!DeliCounter.sliceStylesFor(item).some(function (style) { return style.id === styleId; })) return;
   deliCaptureDialog();
   deliDraft.sliceStyle = styleId;
   deliRenderOrderDialog();

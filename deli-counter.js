@@ -21,6 +21,37 @@ var DeliCounter = (function () {
     { id: "large", label: "Large" },
     { id: "thick", label: "Thick" },
   ];
+
+  /* Cheeses are never shaved. The next cut after Shaved is Thin. */
+  function sliceStylesFor(item) {
+    var category = item && item.category;
+    if (category === "cheese") {
+      return SLICE_STYLES.filter(function (style) { return style.id !== "shaved"; });
+    }
+    return SLICE_STYLES.slice();
+  }
+
+  function coerceSlice(item, current) {
+    var styles = sliceStylesFor(item);
+    var i;
+    for (i = 0; i < styles.length; i++) {
+      if (styles[i].id === current) return current;
+    }
+    var start = 0;
+    for (i = 0; i < SLICE_STYLES.length; i++) {
+      if (SLICE_STYLES[i].id === current) {
+        start = i + 1;
+        break;
+      }
+    }
+    var j;
+    for (i = start; i < SLICE_STYLES.length; i++) {
+      for (j = 0; j < styles.length; j++) {
+        if (styles[j].id === SLICE_STYLES[i].id) return styles[j].id;
+      }
+    }
+    return styles.length ? styles[0].id : "medium";
+  }
   var MEAT_MIN_LB = 0.25;
   var HOURS_COPY =
     "Deli counter open Mon–Fri 9–4, Sat 9–2. Order by 4 PM on weekdays and pick up until 6 PM. Saturday pickup until 2 PM.";
@@ -858,7 +889,10 @@ function seedAvailability(row) {
           error: stockMessage(item.lbsOnHand, requested[item.id]) || "Sorry, we don't have enough to fill this order.",
         };
       }
-      var style = SLICE_STYLES.filter(function (entry) { return entry.id === line.sliceStyle; })[0];
+      if (item.category === "cheese" && line.sliceStyle === "shaved") {
+        return { ok: false, error: "We don't shave cheese. Choose another slice for " + (item.displayName || item.name) + "." };
+      }
+      var style = sliceStylesFor(item).filter(function (entry) { return entry.id === line.sliceStyle; })[0];
       if (!style) return { ok: false, error: "Choose how you'd like " + (item.displayName || item.name) + " sliced." };
       var note = String(line.note || "").trim();
       if (note.length > 140) return { ok: false, error: "Please keep each item note shorter." };
@@ -937,6 +971,8 @@ function seedAvailability(row) {
     MEAT_TYPES: MEAT_TYPES,
     MEAT_LABELS: MEAT_LABELS,
     SLICE_STYLES: SLICE_STYLES,
+    sliceStylesFor: sliceStylesFor,
+    coerceSlice: coerceSlice,
     MEAT_MIN_LB: MEAT_MIN_LB,
     HOURS_COPY: HOURS_COPY,
     readHours: readHours,

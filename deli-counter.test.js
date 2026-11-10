@@ -273,6 +273,50 @@ test("an order cannot ask for more than is on hand", () => {
   assert.equal(good.order.items[0].pricePerLb, item.pricePerLb);
 });
 
+test("cheese cannot be shaved, and a shaved selection falls back to thin", () => {
+  const meat = catalog().find((item) => item.displayName === "Buffalo");
+  const cheese = catalog().find((item) => item.category === "cheese" && DC.isOrderable(item, 0.25));
+  assert.ok(cheese);
+  assert.deepEqual(DC.sliceStylesFor(cheese).map((style) => style.id), ["thin", "medium", "large", "thick"]);
+  assert.equal(DC.sliceStylesFor(meat).some((style) => style.id === "shaved"), true);
+  assert.equal(DC.coerceSlice(cheese, "shaved"), "thin");
+  assert.equal(DC.coerceSlice(cheese, "large"), "large");
+  assert.equal(DC.coerceSlice(meat, "shaved"), "shaved");
+  const now = new Date(2026, 10, 11, 10, 0, 0);
+  const order = {
+    customerName: "Jamie Ellis",
+    customerPhone: "(812) 555-0142",
+    pickupDate: "2026-11-13",
+    pickupTime: "11:00",
+    notes: "",
+    now,
+    closedDates: [],
+    threshold: 0.25,
+  };
+  const shavedCheese = DC.buildOrder(Object.assign({}, order, {
+    itemsById: { [cheese.id]: cheese },
+    lines: [{ itemId: cheese.id, weightLbs: 0.25, sliceStyle: "shaved", note: "", lineId: "li1" }],
+  }));
+  assert.equal(shavedCheese.ok, false);
+  const thinCheese = DC.buildOrder(Object.assign({}, order, {
+    itemsById: { [cheese.id]: cheese },
+    lines: [{ itemId: cheese.id, weightLbs: 0.25, sliceStyle: "thin", note: "", lineId: "li1" }],
+  }));
+  assert.equal(thinCheese.ok, true);
+  assert.equal(thinCheese.order.items[0].sliceStyle, "thin");
+  assert.equal(thinCheese.order.items[0].sliceStyleLabel, "Thin");
+  const shavedMeat = DC.buildOrder(Object.assign({}, order, {
+    itemsById: { [meat.id]: meat },
+    lines: [{ itemId: meat.id, weightLbs: 0.5, sliceStyle: "shaved", note: "", lineId: "li1" }],
+  }));
+  assert.equal(shavedMeat.ok, true);
+  assert.equal(shavedMeat.order.items[0].sliceStyleLabel, "Shaved");
+  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
+  const line = rules.slice(rules.indexOf("function deliLineOk"), rules.indexOf("function deliLinesOk"));
+  assert.match(line, /category != 'cheese'/);
+  assert.match(line, /sliceStyle != 'shaved'/);
+});
+
 test("marking an order picked up subtracts pounds and floors at zero", () => {
   const item = Object.assign({}, catalog().find((entry) => entry.displayName === "Sweet Slice"));
   const plan = DC.planPickupDecrement(

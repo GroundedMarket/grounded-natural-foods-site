@@ -236,6 +236,8 @@ service cloud.firestore {
         && item.weightLbs <= 30
         && item.sliceStyle in ['shaved', 'thin', 'medium', 'large', 'thick']
         && item.sliceStyleLabel is string
+        && (get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.category != 'cheese'
+          || item.sliceStyle != 'shaved')
         && item.note is string
         && item.note.size() <= 140
         && item.name is string
