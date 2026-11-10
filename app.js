@@ -606,13 +606,34 @@ function handleNewOrderArrival(order) {
 // Builds an Epson ePOS-Print XML ticket for one order — talks to the
 // printer directly from the browser over the local network, no server
 // involved.
+function eposEscape(s) {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 function buildEposPrintXML(order) {
-  const esc = (s) =>
-    (s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+  const esc = eposEscape;
   let body = "";
+  // Deli pickup shares the orders collection. Anything that is not a menu,
+  // soup, coffee, or meatcheese line used to fall through to "Custom Salad".
+  // A deli order gets its own ticket from the channel, not from that default.
+  if (typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(order)) {
+    const ticket = DeliCounter.formatDeliTicket(order).split("\n");
+    const header = ticket[0] || "DELI ORDER — Meats & Cheese";
+    const rest = ticket.slice(1).map(esc).join("&#10;");
+    body += `<text align="center" width="2" height="2">${esc(header)}&#10;</text>`;
+    body += `<text align="left" width="1" height="1">${rest}&#10;&#10;</text>`;
+    body += `<cut type="feed"/>`;
+    return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+      ${body}
+    </epos-print>
+  </s:Body>
+</s:Envelope>`;
+  }
   body += `<text align="center" width="2" height="2">GROUNDED ORDER&#10;&#10;</text>`;
   body += `<text align="left" width="1" height="1">`;
   body += `${esc(order.customerName)}   ${esc(order.customerPhone)}&#10;`;
@@ -633,13 +654,16 @@ function buildEposPrintXML(order) {
         item.sliceStyleLabel || item.sliceStyle || ""
       )}  ${esc(item.name)}&#10;`;
       if (item.note) body += `   note: ${esc(item.note)}&#10;`;
-    } else {
+    } else if (item.kind === "custom" || item.customType) {
       body += `x${item.qty || 1}  Custom ${
         item.customType === "panini" ? "Panini" : "Salad"
       }&#10;`;
       (item.selections || []).forEach((sel) => {
         body += `   - ${esc(sel.item)}&#10;`;
       });
+      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+    } else {
+      body += `x${item.qty || 1}  ${esc(item.name)}&#10;`;
       if (item.note) body += `   note: ${esc(item.note)}&#10;`;
     }
   });
@@ -1117,10 +1141,10 @@ const ORDER_STATUS_LABEL = {
   incomplete: "Incomplete",
 };
 function orderPillLabel(o) {
-  if (o && o.channel === "deliCounter") {
-    if (o.deliStatus === "pickedUp") return "Picked Up";
-    if (o.deliStatus === "ready") return "Ready";
-    return "New";
+  if (o && (o.channel === "deliCounter" || o.payAtPickup)) {
+    if (o.deliStatus === "pickedUp") return "Deli · Picked Up";
+    if (o.deliStatus === "ready") return "Deli · Ready";
+    return "Deli · New";
   }
   return ORDER_STATUS_LABEL[orderStatus(o)];
 }
@@ -1141,7 +1165,9 @@ function orderCardHTML(o) {
   )}</strong>
       <span class="pill">${orderPillLabel(o)}</span>
     </div>
-    <div style="font-size:12.5px;color:var(--ink-soft)">${escHtmlAttr(
+    <div style="font-size:12.5px;color:var(--ink-soft)">${
+      o.channel === "deliCounter" || o.payAtPickup ? "Deli pickup · " : ""
+    }${escHtmlAttr(
       o.customerPhone
     )} · ${(o.items || []).length} item${
     (o.items || []).length === 1 ? "" : "s"
@@ -1160,15 +1186,17 @@ function orderItemLineHTML(item, dimmed, orderId, idx) {
   let content;
   if (item.kind === "menu" || item.kind === "soup" || item.kind === "coffee") {
     content = `<div><strong>×${item.qty} ${escHtmlAttr(item.name)}</strong>${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
-  } else if (item.kind === "meatcheese") {
+  } else if (item.kind === "meatcheese" || item.catalog === "counter") {
     content = `<div><strong>${mcFmtLbs(item.weightLbs)} lb ${escHtmlAttr(
       item.sliceStyleLabel || item.sliceStyle
     )} — ${escHtmlAttr(item.name)}</strong>${
       item.wholePieceBlockId ? ' <span style="font-size:11px;color:var(--terracotta)">(whole piece)</span>' : ""
     }${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
-  } else {
+  } else if (item.kind === "custom" || item.customType) {
     const sels = (item.selections || []).map((s) => s.item).join(", ");
     content = `<div><strong>×${item.qty || 1} Custom ${item.customType === "panini" ? "Panini" : "Salad"}</strong><br><span style="font-size:12.5px">${escHtmlAttr(sels)}</span>${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
+  } else {
+    content = `<div><strong>×${item.qty || 1} ${escHtmlAttr(item.name || "Item")}</strong>${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
   }
   return `<div class="search-panel-row"${styleAttr}>${checkbox}${content}</div>`;
 }

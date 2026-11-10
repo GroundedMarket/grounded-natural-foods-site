@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const escpos = require("escpos");
+const DeliCounter = require("../deli-counter.js");
 escpos.Network = require("escpos-network");
 
 const app = express();
@@ -70,6 +71,15 @@ async function printOrder(order) {
       });
 
       console.log("Printing order:\n", order);
+
+      if (DeliCounter.isDeliPickupOrder(order)) {
+        printer.align("LT").style("NORMAL");
+        DeliCounter.formatDeliTicket(order).split("\n").forEach((line) => {
+          printer.text(line);
+        });
+        printer.drawLine().cut().close();
+        return;
+      }
 
       printer
         .align("CT")

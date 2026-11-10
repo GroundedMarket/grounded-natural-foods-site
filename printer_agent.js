@@ -1,5 +1,6 @@
 const http = require("http");
 const escpos = require("escpos");
+const DeliCounter = require("./deli-counter.js");
 
 escpos.Network = require("escpos-network");
 
@@ -29,6 +30,15 @@ async function printOrder(order) {
     }
 
     const printer = new escpos.Printer(device);
+
+    if (DeliCounter.isDeliPickupOrder(order)) {
+      printer.align("LT").style("NORMAL");
+      DeliCounter.formatDeliTicket(order).split("\n").forEach((line) => {
+        printer.text(line);
+      });
+      printer.drawLine().cut().close();
+      return;
+    }
 
     printer
       .align("CT")
