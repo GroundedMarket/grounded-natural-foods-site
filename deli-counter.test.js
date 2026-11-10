@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const DC = require("./deli-counter.js");
 const Icons = require("./deli-icons.js");
 require("./deli-counter-seed.js");
@@ -281,10 +283,17 @@ test("marking an order picked up subtracts pounds and floors at zero", () => {
   assert.equal(plan.short.length, 0);
   assert.equal(plan.updates[0].lbsOnHand, DC.normalizeLbs(item.lbsOnHand - 0.75));
   assert.equal(plan.updates[0].inStock, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(plan.updates[0], "availability"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plan.updates[0], "discontinued"), false);
   const emptied = DC.planPickupDecrement([item], { items: [{ itemId: item.id, weightLbs: 20 }] }, 0.25);
   assert.equal(emptied.updates[0].lbsOnHand, 0);
   assert.equal(emptied.updates[0].inStock, false);
   assert.equal(emptied.short.length, 1);
+  const held = Object.assign({}, item, { availability: "discontinued", discontinued: true, lbsOnHand: 2, inStock: false });
+  const stillHeld = DC.planPickupDecrement([held], { items: [{ itemId: held.id, weightLbs: 0.5 }] }, 0.25);
+  assert.equal(stillHeld.updates[0].lbsOnHand, 1.5);
+  assert.equal(stillHeld.updates[0].inStock, false);
+  assert.deepEqual(Object.keys(stillHeld.updates[0]).sort(), ["id", "inStock", "lbsOnHand"]);
 });
 
 test("another POS can register the same row shape without a Toast API client", () => {
@@ -316,6 +325,54 @@ test("quoted CSV commas do not shift the price column, and jerky and trays are s
   assert.deepEqual(parsed.skipped.map((row) => row.reason), ["jerky", "category"]);
 });
 
+test("a manager's hide flags and a higher meat minimum stay off the public list", () => {
+  const buffalo = catalog().find((item) => item.displayName === "Buffalo");
+  assert.equal(DC.isOrderable(buffalo, 0.25), true);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { hiddenOnline: true }), 0.25), false);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { notOfferedOnline: true }), 0.25), false);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { removed: true }), 0.25), false);
+  const short = Object.assign({}, buffalo, { lbsOnHand: 0.5, availability: "in", inStock: true });
+  assert.equal(DC.isOrderable(short, 0.25, { meatMinLbs: 1 }), false);
+  assert.equal(DC.isOrderable(short, 0.25, { meatMinLbs: 0.25 }), true);
+  const hours = DC.hoursFor("2026-11-11", new Date(2026, 10, 11, 10, 0), {
+    storeOpen: "10:00",
+    storeCloseWeekday: "17:00",
+    weekdayOrderCutoff: "15:00",
+  });
+  assert.equal(hours.open, 10 * 60);
+  assert.equal(hours.close, 17 * 60);
+  assert.equal(DC.hoursFor("2026-11-11", new Date(2026, 10, 11, 15, 30), { weekdayOrderCutoff: "15:00" }), null);
+  assert.equal(DC.readHours({ hoursCopy: "Pickup by the counter." }).hoursCopy, "Pickup by the counter.");
+});
+
+test("re-import keeps an icon and the hide flags", () => {
+  const buffalo = catalog().find((item) => item.displayName === "Buffalo");
+  const edited = Object.assign({}, buffalo, {
+    iconKey: "wing",
+    hiddenOnline: true,
+    notOfferedOnline: false,
+    removed: false,
+    displayNameCustom: true,
+  });
+  const next = DC.applyPosRows([edited], [{
+    toastItemId: buffalo.toastItemId,
+    sku: buffalo.sku,
+    toastName: buffalo.toastName,
+    category: "meat",
+    lbsOnHand: 3,
+    pricePerLb: buffalo.pricePerLb,
+  }], { threshold: 0.25 })[0];
+  assert.equal(next.item.iconKey, "wing");
+  assert.equal(next.item.hiddenOnline, true);
+  assert.equal(next.item.removed, false);
+  assert.equal(DC.isOrderable(next.item, 0.25), false);
+  const chipped = catalog().find((item) => item.toastName === "Chipped Meat");
+  assert.equal(chipped.notOfferedOnline, true);
+  const forced = Icons.iconFor({ displayName: "Buffalo", iconKey: "flame", category: "meat", meatType: "chicken" });
+  assert.notEqual(forced, Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" }));
+  assert.equal(Icons.choices().some((choice) => choice.key === "wing"), true);
+});
+
 test("each starter item has its own drawn icon, with a type fallback", () => {
   const buffalo = Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" });
   const swiss = Icons.iconFor({ displayName: "Lacey Swiss", category: "cheese" });
@@ -324,4 +381,46 @@ test("each starter item has its own drawn icon, with a type fallback", () => {
   assert.notEqual(buffalo, swiss);
   assert.match(fallback, /<svg/);
   assert.equal(Icons.iconFor({ displayName: "Lemon Pepper", category: "meat" }).includes("circle"), true);
+});
+
+function rulesFunction(source, name) {
+  const marker = "function " + name;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, name);
+  const open = source.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) return source.slice(open, i + 1);
+    }
+  }
+  throw new Error("Unclosed rules function " + name);
+}
+
+test("pickup decrement is a staff write that can only lower pounds", () => {
+  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
+  const block = rules.slice(rules.indexOf("match /meatCheeseItems/"), rules.indexOf("match /meatCheeseSlots/"));
+  assert.match(block, /allow update: if isStaff\(\)[\s\S]*hasOnly\(\['lbsOnHand', 'inStock', 'availableWeight'\]\)/);
+  assert.match(block, /request\.resource\.data\.lbsOnHand <= resource\.data\.lbsOnHand/);
+  assert.match(block, /request\.resource\.data\.availability == resource\.data\.availability/);
+  assert.match(block, /request\.resource\.data\.discontinued == resource\.data\.discontinued/);
+  assert.match(block, /counterShape\(request\.resource\.data\)/);
+});
+
+test("a public deli order fetches only the line items and store/deliCounter", () => {
+  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
+  const body = ["deliMeatMin", "deliLineOk", "deliLinesOk", "validPublicDeliOrder"]
+    .map((name) => rulesFunction(rules, name))
+    .join("\n");
+  const paths = body.match(/documents\/[A-Za-z0-9_/{}$().]+/g) || [];
+  assert.ok(paths.length > 0);
+  paths.forEach((path) => {
+    assert.match(path, /^documents\/(meatCheeseItems\/|store\/deliCounter)/);
+  });
+  assert.equal(body.includes("employees/"), false);
+  assert.equal(body.includes("function canEditOnlineDeli"), false);
+  const distinct = new Set(paths.map((path) => path.split("/")[1]));
+  assert.deepEqual([...distinct].sort(), ["meatCheeseItems", "store"]);
 });

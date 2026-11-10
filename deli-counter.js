@@ -201,13 +201,15 @@ function availabilityOf(item) {
     return false;
   }
 
-  function isOrderable(item, threshold) {
+  function isOrderable(item, threshold, settings) {
     if (!isCounterItem(item)) return false;
     if (isChippedMeat(item)) return false;
+    if (item.hiddenOnline || item.removed || item.notOfferedOnline) return false;
     var availability = availabilityOf(item);
     if (availability === "discontinued" || item.discontinued) return false;
     if (!effectiveInStock(availability, item.lbsOnHand, threshold)) return false;
-    if (item.category === "meat" && normalizeLbs(item.lbsOnHand) < MEAT_MIN_LB - 1e-9) return false;
+    var meatMin = readHours(settings).meatMinLbs;
+    if (item.category === "meat" && normalizeLbs(item.lbsOnHand) < meatMin - 1e-9) return false;
     return true;
   }
 
@@ -246,11 +248,15 @@ function availabilityOf(item) {
     return best;
   }
 
-  function minimumMessage(category, weight) {
+  function minimumMessage(category, weight, minLbs) {
     if (category !== "meat") return "";
     var want = Number(weight);
     if (!isFinite(want) || want <= 0) return "";
-    if (want < MEAT_MIN_LB - 1e-9) return "Minimum order is 1/4 lb.";
+    var min = minLbs == null || !isFinite(Number(minLbs)) ? MEAT_MIN_LB : normalizeLbs(minLbs);
+    if (want < min - 1e-9) {
+      var label = Math.abs(min - 0.25) < 1e-9 ? "1/4 lb" : formatWeight(min) + " lb";
+      return "Minimum order is " + label + ".";
+    }
     return "";
   }
 
@@ -279,12 +285,13 @@ function stockMessage(onHand, requested) {
 
   function groupCatalog(items, threshold, options) {
     var publicOnly = !!(options && options.publicOnly);
+    var settings = options && options.settings;
     var limit = thresholdOf(threshold);
     var buckets = { chicken: [], turkey: [], ham: [], beef: [], other: [] };
     var cheeses = [];
     (items || []).forEach(function (item) {
       if (!item) return;
-      var orderable = isCounterItem(item) ? isOrderable(item, limit) : (item.availableWeight || 0) > 0 && item.discontinued !== true;
+      var orderable = isCounterItem(item) ? isOrderable(item, limit, settings) : (item.availableWeight || 0) > 0 && item.discontinued !== true && !isChippedMeat(item);
       if (publicOnly && !orderable) return;
       if (item.category === "cheese") {
         cheeses.push(item);
@@ -538,6 +545,10 @@ function stockMessage(onHand, requested) {
       notes: fields.notes || "",
       meatType: meatType,
       meatTypeEdited: !!fields.meatTypeEdited,
+      iconKey: fields.iconKey || "",
+      hiddenOnline: !!fields.hiddenOnline,
+      notOfferedOnline: !!fields.notOfferedOnline,
+      removed: !!fields.removed,
     };
   }
 
@@ -574,6 +585,10 @@ function seedAvailability(row) {
           meatTypeEdited: false,
           availableWeight: 0,
           posSource: "toast-csv",
+          iconKey: "",
+          hiddenOnline: false,
+          notOfferedOnline: String(row.sku || "") === "70238" || normalizeName(row.toastName) === "chipped meat",
+          removed: false,
         });
         return {
           action: "create",
@@ -623,6 +638,10 @@ function seedAvailability(row) {
         brand: match.brand || "",
         notes: match.notes || "",
         posSource: match.posSource || "toast-csv",
+        iconKey: match.iconKey || "",
+        hiddenOnline: !!match.hiddenOnline,
+        notOfferedOnline: !!match.notOfferedOnline || String(row.sku || match.sku || "") === "70238" || normalizeName(row.toastName) === "chipped meat",
+        removed: !!match.removed,
       });
       return {
         action: "update",
@@ -692,18 +711,38 @@ function seedAvailability(row) {
   /* Store pickup: Mon–Fri 9–6, Sat 9–2, closed Sunday.
      Same-day weekday pickup after the counter closes (until 6) is only
      for orders placed by 4:00 PM. Saturday never extends past 2. */
-  function hoursFor(dateISO, now) {
+  function clockMinutes(value, fallback) {
+    if (typeof value === "number" && isFinite(value)) return value;
+    var match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ""));
+    if (!match) return fallback;
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  function readHours(settings) {
+    var s = settings || {};
+    return {
+      open: clockMinutes(s.storeOpen, 9 * 60),
+      weekdayClose: clockMinutes(s.storeCloseWeekday, 18 * 60),
+      saturdayClose: clockMinutes(s.storeCloseSaturday, 14 * 60),
+      weekdayCutoff: clockMinutes(s.weekdayOrderCutoff, 16 * 60),
+      meatMinLbs: s.meatMinLbs != null && isFinite(Number(s.meatMinLbs)) ? normalizeLbs(s.meatMinLbs) : MEAT_MIN_LB,
+      hoursCopy: s.hoursCopy || HOURS_COPY,
+    };
+  }
+
+  function hoursFor(dateISO, now, settings) {
     var date = parseISODate(dateISO);
     if (!date) return null;
     var dow = date.getDay();
     if (dow === 0) return null;
-    var close = dow === 6 ? 14 * 60 : 18 * 60;
+    var hours = readHours(settings);
+    var close = dow === 6 ? hours.saturdayClose : hours.weekdayClose;
     if (now && isoFromDate(now) === dateISO) {
       var nowMinutes = now.getHours() * 60 + now.getMinutes();
-      if (dow === 6 && nowMinutes > 14 * 60) return null;
-      if (dow !== 6 && nowMinutes > 16 * 60) return null;
+      if (dow === 6 && nowMinutes > hours.saturdayClose) return null;
+      if (dow !== 6 && nowMinutes > hours.weekdayCutoff) return null;
     }
-    return { open: 9 * 60, close: close };
+    return { open: hours.open, close: close };
   }
 
   function closedMap(closedDates) {
@@ -715,9 +754,9 @@ function seedAvailability(row) {
     return map;
   }
 
-  function pickupTimes(dateISO, now, closedDates) {
+  function pickupTimes(dateISO, now, closedDates, settings) {
     if (closedMap(closedDates)[dateISO]) return [];
-    var hours = hoursFor(dateISO, now);
+    var hours = hoursFor(dateISO, now, settings);
     if (!hours) return [];
     var times = [];
     var minute;
@@ -729,14 +768,14 @@ function seedAvailability(row) {
     });
   }
 
-  function pickupDates(now, closedDates, days) {
+  function pickupDates(now, closedDates, days, settings) {
     var span = days || 21;
     var out = [];
     var i;
     for (i = 0; i < span; i++) {
       var date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
       var iso = isoFromDate(date);
-      if (pickupTimes(iso, now, closedDates).length) out.push(iso);
+      if (pickupTimes(iso, now, closedDates, settings).length) out.push(iso);
     }
     return out;
   }
@@ -752,7 +791,7 @@ function seedAvailability(row) {
     if (date.getDay() === 0) {
       return "We're closed Sundays for pickup — please choose a Monday through Saturday date.";
     }
-    var hours = hoursFor(dateISO, now);
+    var hours = hoursFor(dateISO, now, options && options.settings);
     var minutes = toMinutes(timeStr);
     if (!hours) {
       if (date.getDay() !== 0 && isoFromDate(now) === dateISO) {
@@ -767,7 +806,7 @@ function seedAvailability(row) {
         ? "Saturday pickup is 9:00 AM to 2:00 PM."
         : "Weekday pickup is 9:00 AM to 6:00 PM. Order by 4:00 PM for same-day pickup.";
     }
-    var allowed = pickupTimes(dateISO, now, options && options.closedDates);
+    var allowed = pickupTimes(dateISO, now, options && options.closedDates, options && options.settings);
     if (allowed.indexOf(timeStr) === -1) {
       return "That pickup time has already passed. Choose a later time.";
     }
@@ -799,11 +838,11 @@ function seedAvailability(row) {
     for (i = 0; i < lines.length; i++) {
       var line = lines[i];
       var item = byId[line.itemId];
-      if (!item || !isOrderable(item, threshold)) {
+      if (!item || !isOrderable(item, threshold, input.settings)) {
         return { ok: false, error: "One of those items just went out of stock. Take another look at the list." };
       }
       var weight = normalizeLbs(line.weightLbs);
-      var tooSmall = minimumMessage(item.category, weight);
+      var tooSmall = minimumMessage(item.category, weight, input.settings && input.settings.meatMinLbs);
       if (tooSmall) return { ok: false, error: tooSmall };
       var choices = weightChoices(item.lbsOnHand);
       var allowedWeight = choices.some(function (choice) {
@@ -884,13 +923,10 @@ function seedAvailability(row) {
           have: have,
         });
       }
-      var availability = availabilityOf(item);
       updates.push({
         id: id,
         lbsOnHand: next,
-        inStock: effectiveInStock(availability, next, limit),
-        availability: availability,
-        discontinued: availability === "discontinued",
+        inStock: effectiveInStock(availabilityOf(item), next, limit),
       });
     });
     return { updates: updates, short: short };
@@ -903,6 +939,7 @@ function seedAvailability(row) {
     SLICE_STYLES: SLICE_STYLES,
     MEAT_MIN_LB: MEAT_MIN_LB,
     HOURS_COPY: HOURS_COPY,
+    readHours: readHours,
     isChippedMeat: isChippedMeat,
     minimumMessage: minimumMessage,
     normalizeName: normalizeName,
@@ -926,6 +963,7 @@ function seedAvailability(row) {
     applyPosRows: applyPosRows,
     starterCatalog: starterCatalog,
     recomputeAutoStock: recomputeAutoStock,
+    hoursFor: hoursFor,
     pickupDates: pickupDates,
     pickupTimes: pickupTimes,
     validatePickup: validatePickup,
