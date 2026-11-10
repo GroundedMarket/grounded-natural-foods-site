@@ -1819,6 +1819,7 @@ function afterFirestoreUpdate() {
       renderPortalBody();
     }
   }
+  if (typeof deliRefreshManageIfWaiting === "function") deliRefreshManageIfWaiting();
   applyingRemoteUpdate = false;
 }
 
@@ -7244,7 +7245,7 @@ function meatCheeseHTML() {
   if (typeof deliMaybeSeed === "function") deliMaybeSeed();
   return `<h2 class="section-title">Meats &amp; Cheese</h2>
     ${typeof deliCounterToolbarHTML === "function" ? deliCounterToolbarHTML() : ""}
-    <p style="font-size:12.5px;color:var(--ink-soft);margin:6px 0 16px">Tap an empty slot to stock a new item. Tap a filled slot to add, weigh, or move its pieces. Drag a filled slot to reorder the case.</p>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:6px 0 16px">Tap an empty slot to stock a new item. Tap a filled slot to weigh its pieces, or to hide it from the customer site. Drag a filled slot to reorder the case.</p>
     ${mcCaseHTML("meat")}
     ${mcCaseHTML("cheese")}
     ${mcFreezerHTML()}`;
@@ -7673,19 +7674,37 @@ function openMeatCheeseSlotPopup(cat, itemId) {
     .slice()
     .sort((a, b) => (a.sellByDate || "9999-99-99").localeCompare(b.sellByDate || "9999-99-99"));
   const totalWeight = blocks.reduce((s, b) => s + (b.weightCurrent || 0), 0);
-  openModal(`<h3>${escHtml(item.emoji || "")} ${escHtml(item.name)}</h3>
-    <p style="font-size:12.5px;color:var(--ink-soft);margin:-6px 0 10px">${
-      item.brand ? escHtml(item.brand) + " · " : ""
-    }${
-    item.price ? "$" + escHtml(item.price) + "/lb · " : ""
-  }${mcFmtLbs(totalWeight)} lb in the case${
-    item.notes ? `<br>${escHtml(item.notes)}` : ""
-  }</p>
+  const canEdit = typeof canEditOnlineDeli === "function" && canEditOnlineDeli();
+  const hidden = !!item.hiddenOnline;
+  const discontinued = typeof DeliCounter !== "undefined" && DeliCounter.availabilityOf(item) === "discontinued";
+  const onlineLine = hidden
+    ? "Hidden from the customer site."
+    : discontinued
+      ? "Discontinued. It stays off the website."
+      : "On the customer site while it is in stock.";
+  openModal(`<h3>${escHtml(item.displayName || item.name)}</h3>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:-6px 0 10px">${escHtml(onlineLine)} Hide online takes it off the website. The pieces below are only the physical case.${
+      item.brand ? " " + escHtml(item.brand) + "." : ""
+    } ${mcFmtLbs(totalWeight)} lb in the case.</p>
+    ${
+      canEdit
+        ? `<div class="modal-actions">
+        <button type="button" class="btn" onclick="deliEditItem('${itemId}')">Edit online item</button>
+        ${
+          hidden
+            ? `<button type="button" class="btn outline" onclick="deliShowOnline('${itemId}')">Show on the website</button>`
+            : `<button type="button" class="btn outline" onclick="deliAskHide('${itemId}')">Hide online</button>`
+        }
+        <button type="button" class="btn outline" onclick="deliAskDiscontinue('${itemId}')">${discontinued ? "Restore" : "Discontinue"}</button>
+      </div>
+      <div id="deli-confirm-slot" class="deli-confirm" hidden></div>`
+        : `<p class="mc-public-intro">A manager takes items off the website.</p>`
+    }
     <div class="mc-block-row">
       ${blocks.map((b) => mcBlockTileHTML(b)).join("")}
       <button type="button" class="mc-block-tile mc-block-add" onclick="addMeatCheeseBlockFlow('${itemId}')">+ Add</button>
     </div>
-    <div class="modal-actions"><button class="btn outline" onclick="deliEditItem('${itemId}')">Online stock</button><button class="btn outline" onclick="closeModal()">Close</button></div>`);
+    <div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>`);
 }
 function mcBlockTileHTML(b) {
   const pct = b.weightInitial
