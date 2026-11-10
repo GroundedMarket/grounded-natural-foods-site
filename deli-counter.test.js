@@ -183,6 +183,11 @@ test("weight choices stay on quarter pounds and never pass what is on hand", () 
     "Sorry, we don't have enough to fill this order. We have about 0.87 lb on hand."
   );
   assert.equal(DC.stockMessage(2, 0.5), "");
+  assert.equal(DC.defaultOrderWeight(8.75), 1);
+  assert.equal(DC.defaultOrderWeight(0.4), 0.25);
+  assert.equal(DC.defaultOrderWeight(0.2), 0.2);
+  assert.equal(DC.defaultOrderWeight(0.2, 0.2), null);
+  assert.equal(DC.defaultOrderWeight(0), null);
 });
 
 test("public meats are only chicken, turkey, ham, and beef", () => {
