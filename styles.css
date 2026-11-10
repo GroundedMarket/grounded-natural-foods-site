@@ -641,7 +641,13 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 #deli-add-line:disabled, #deli-place-btn:disabled{ opacity:.45; cursor:not-allowed; }
 .deli-next-hint{ font-family:var(--font-hand, "Caveat", cursive); font-size:22px; margin:0 0 8px; }
 .deli-editor,.deli-checkout{ margin:8px 0 14px; padding-top:4px; }
-#deli-weight-input{ display:block; margin-top:8px; max-width:140px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); font-family:var(--font-mono); }
+#deli-weight-input{ width:88px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); font-family:var(--font-mono); }
+.deli-weight-entry{ display:flex; align-items:center; gap:8px; margin-top:8px; }
+.deli-lb-suffix{ font-family:var(--font-mono); font-size:14px; }
+.deli-amount-field{ margin-bottom:4px; padding-bottom:12px; border-bottom:1px dashed var(--line); }
+.deli-slice-field{ margin-top:12px; }
+.mc-deli-icon{ width:28px; height:28px; flex-shrink:0; color:var(--terracotta); }
+.mc-public-tile.mc-cat-cheese .mc-deli-icon{ color:var(--gold, #b8860b); }
 .deli-order-list{ margin-top:12px; max-height:320px; overflow:auto; }
 .mc-group-head{ font-family:var(--font-hand, "Caveat", cursive); font-weight:500; font-size:28px; line-height:1; color:var(--terracotta); margin:14px 0 6px; transform:rotate(-1.2deg); border-bottom:1.5px dashed var(--brown-light); display:inline-block; }
 .mc-tile-online{ font-family:var(--font-hand, "Caveat", cursive); font-size:13px; line-height:1; color:var(--green-deep); }
