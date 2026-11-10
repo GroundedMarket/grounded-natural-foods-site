@@ -214,7 +214,22 @@ function availabilityOf(item) {
     return q.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   }
 
-  function stockMessage(onHand, requested) {
+  /* Presets shown as chips: quarter pounds through 1 lb, plus whatever is
+   left when that is under a quarter pound. The opening selection is the
+   largest of those that still fits. Null means none do. */
+function defaultOrderWeight(onHand, alreadyRequested) {
+  var have = normalizeLbs(normalizeLbs(onHand) - normalizeLbs(alreadyRequested || 0));
+  if (have < 0) have = 0;
+  var presets = [0.25, 0.5, 0.75, 1];
+  if (have > 0 && have < 0.25) presets.unshift(have);
+  var best = null;
+  presets.forEach(function (weight) {
+    if (weight <= have + 1e-9 && (best == null || weight > best)) best = weight;
+  });
+  return best;
+}
+
+function stockMessage(onHand, requested) {
     var want = Number(requested);
     if (!isFinite(want) || want <= 0) return "";
     var have = normalizeLbs(onHand);
@@ -864,6 +879,7 @@ function seedAvailability(row, threshold) {
     weightChoices: weightChoices,
     formatWeight: formatWeight,
     stockMessage: stockMessage,
+    defaultOrderWeight: defaultOrderWeight,
     groupCatalog: groupCatalog,
     parseToastExportCsv: parseToastExportCsv,
     registerPosAdapter: registerPosAdapter,

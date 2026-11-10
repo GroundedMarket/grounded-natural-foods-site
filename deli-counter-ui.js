@@ -188,17 +188,22 @@ function deliDraftMessage() {
   var item = deliFind(deliDraft.itemId);
   if (!item) return "";
   var weight = Number(deliDraft.weightLbs);
-  if (!isFinite(weight) || weight <= 0) return "Enter how much you'd like.";
+  if (!isFinite(weight) || weight <= 0) return "";
   return DeliCounter.stockMessage(item.lbsOnHand, deliRequestedFor(item.id, weight));
+}
+
+function deliDraftCanAdd() {
+  if (!deliDraft) return false;
+  var weight = Number(deliDraft.weightLbs);
+  if (!isFinite(weight) || weight <= 0) return false;
+  return !deliDraftMessage();
 }
 
 function deliEditorHTML() {
   var draft = deliDraft;
-  if (!draft) {
-    return '<p class="deli-next-hint">Tap an item to add it.</p>';
-  }
+  if (!draft) return "";
   var item = deliFind(draft.itemId);
-  if (!item) return '<p class="deli-next-hint">Tap an item to add it.</p>';
+  if (!item) return "";
   var message = deliDraftMessage();
   var catClass = "mc-cat-" + item.category;
   var quick = [0.25, 0.5, 0.75, 1];
@@ -213,7 +218,8 @@ function deliEditorHTML() {
       return '<button type="button" class="deli-weight-chip' + on + '" onclick="deliPickWeight(' + weight + ')">' +
         escHtml(DeliCounter.formatWeight(weight)) + " lb</button>";
     }).join("") +
-    '</div><input type="number" id="deli-weight-input" min="0" step="0.25" value="' + escHtmlAttr(String(draft.weightLbs)) +
+    '</div><input type="number" id="deli-weight-input" min="0" step="0.25" value="' +
+    escHtmlAttr(draft.weightLbs === "" || draft.weightLbs == null ? "" : String(draft.weightLbs)) +
     '" oninput="deliWeightTyped(this.value)"></div>' +
     (message ? '<p class="deli-stock-error" id="deli-stock-error">' + escHtml(message) + "</p>" : '<p class="deli-stock-error" id="deli-stock-error" hidden></p>') +
     '<div class="field"><label>Slice</label><div class="mc-slice-grid">' +
@@ -224,7 +230,7 @@ function deliEditorHTML() {
     }).join("") + "</div></div>" +
     '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
     escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
-    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (message ? " disabled" : "") + ">Add to order</button></div>";
+    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to order</button></div>";
 }
 
 function deliSummaryHTML() {
@@ -316,11 +322,13 @@ function deliOpenItem(id) {
   if (!item) return;
   deliCaptureDialog();
   deliEnsureCheckout();
+  var sameItem = deliDraft && deliDraft.itemId === id;
+  var starting = DeliCounter.defaultOrderWeight(item.lbsOnHand, deliRequestedFor(id, 0));
   deliDraft = {
     itemId: id,
-    weightLbs: 0.25,
-    sliceStyle: deliDraft && deliDraft.itemId === id ? deliDraft.sliceStyle : "medium",
-    note: deliDraft && deliDraft.itemId === id ? deliDraft.note : "",
+    weightLbs: starting == null ? "" : starting,
+    sliceStyle: sameItem ? deliDraft.sliceStyle : "medium",
+    note: sameItem ? deliDraft.note : "",
   };
   deliRenderOrderDialog();
 }
@@ -342,7 +350,7 @@ function deliWeightTyped(value) {
     el.textContent = message;
   }
   var add = document.getElementById("deli-add-line");
-  if (add) add.disabled = !!message;
+  if (add) add.disabled = !deliDraftCanAdd();
 }
 
 function deliPickSlice(styleId) {
@@ -355,7 +363,7 @@ function deliPickSlice(styleId) {
 function deliAddDraft() {
   deliCaptureDialog();
   if (!deliDraft) return;
-  if (deliDraftMessage()) return;
+  if (!deliDraftCanAdd()) return;
   if (deliSlip.length >= 8) {
     alert("An online deli order can have up to 8 items. Call the store for a larger order.");
     return;
