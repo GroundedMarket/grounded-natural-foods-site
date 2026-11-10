@@ -317,6 +317,34 @@ test("cheese cannot be shaved, and a shaved selection falls back to thin", () =>
   assert.match(line, /sliceStyle != 'shaved'/);
 });
 
+test("a deli pickup prints as a deli ticket, not a custom salad", () => {
+  const order = {
+    channel: "deliCounter",
+    payAtPickup: true,
+    customerName: "Jamie Ellis",
+    customerPhone: "(812) 555-0142",
+    pickupDate: "2026-11-13",
+    pickupTime: "11:00",
+    notes: "Extra napkins",
+    items: [
+      { kind: "meatcheese", name: "Buffalo", weightLbs: 0.5, sliceStyle: "thin", sliceStyleLabel: "Thin", note: "not too salty" },
+      { kind: "meatcheese", name: "Lacey Swiss", weightLbs: 0.25, sliceStyle: "medium", sliceStyleLabel: "Medium", note: "" },
+    ],
+  };
+  assert.equal(DC.isDeliPickupOrder(order), true);
+  assert.equal(DC.isDeliPickupOrder({ items: [{ kind: "custom", customType: "salad", name: "House" }] }), false);
+  const ticket = DC.formatDeliTicket(order);
+  assert.match(ticket, /^DELI ORDER — Meats & Cheese/);
+  assert.match(ticket, /PICKUP/);
+  assert.match(ticket, /Jamie Ellis/);
+  assert.match(ticket, /\(812\) 555-0142/);
+  assert.match(ticket, /Pickup: Fri 2026-11-13 {2}11:00 AM/);
+  assert.match(ticket, /Buffalo\n0\.5 lb · Thin\nNote: not too salty/);
+  assert.match(ticket, /Lacey Swiss\n0\.25 lb · Medium/);
+  assert.match(ticket, /PAY AT PICKUP\nNote: Extra napkins/);
+  assert.equal(ticket.includes("Custom Salad"), false);
+});
+
 test("marking an order picked up subtracts pounds and floors at zero", () => {
   const item = Object.assign({}, catalog().find((entry) => entry.displayName === "Sweet Slice"));
   const plan = DC.planPickupDecrement(

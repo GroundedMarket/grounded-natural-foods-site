@@ -966,6 +966,65 @@ function seedAvailability(row) {
     return { updates: updates, short: short };
   }
 
+  function formatClock12(hhmm) {
+    var parts = String(hhmm || "").split(":");
+    var h = Number(parts[0]);
+    var m = parts.length > 1 ? parts[1] : "00";
+    if (!isFinite(h)) return String(hhmm || "");
+    var ap = h >= 12 ? "PM" : "AM";
+    var h12 = h % 12 || 12;
+    return h12 + ":" + (m.length === 1 ? "0" + m : m) + " " + ap;
+  }
+
+  function pickupWhenLabel(iso, hhmm) {
+    var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    var parts = String(iso || "").split("-");
+    var day = iso || "";
+    if (parts.length === 3) {
+      var date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      if (!isNaN(date.getTime()) && date.getFullYear() === Number(parts[0])) {
+        day = days[date.getDay()] + " " + iso;
+      }
+    }
+    return "Pickup: " + day + "  " + formatClock12(hhmm);
+  }
+
+  /* Plain-text kitchen ticket. The receipt printer wraps this; the portal
+     can show the same words. Not a custom salad. */
+  function formatDeliTicket(order) {
+    var lines = [];
+    lines.push("DELI ORDER — Meats & Cheese");
+    lines.push("PICKUP");
+    lines.push("");
+    lines.push(String((order && order.customerName) || ""));
+    lines.push(String((order && order.customerPhone) || ""));
+    lines.push(pickupWhenLabel(order && order.pickupDate, order && order.pickupTime));
+    lines.push("------------------------------");
+    (order && order.items || []).forEach(function (item) {
+      var name = item.name || item.displayName || "Item";
+      var weight = item.weightLbs != null && item.weightLbs !== "" ? formatWeight(item.weightLbs) + " lb" : "";
+      var slice = item.sliceStyleLabel || item.sliceStyle || "";
+      var detail = [weight, slice].filter(Boolean).join(" · ");
+      lines.push(name);
+      if (detail) lines.push(detail);
+      if (item.note) lines.push("Note: " + item.note);
+      lines.push("");
+    });
+    lines.push("------------------------------");
+    lines.push("PAY AT PICKUP");
+    if (order && order.notes) lines.push("Note: " + order.notes);
+    return lines.join("\n");
+  }
+
+  function isDeliPickupOrder(order) {
+    if (!order) return false;
+    if (order.channel === "deliCounter" || order.payAtPickup === true) return true;
+    var items = order.items || [];
+    return items.length > 0 && items.every(function (item) {
+      return item && (item.kind === "meatcheese" || item.catalog === "counter");
+    });
+  }
+
   return {
     DEFAULT_THRESHOLD: DEFAULT_THRESHOLD,
     MEAT_TYPES: MEAT_TYPES,
@@ -1005,6 +1064,8 @@ function seedAvailability(row) {
     validatePickup: validatePickup,
     buildOrder: buildOrder,
     planPickupDecrement: planPickupDecrement,
+    formatDeliTicket: formatDeliTicket,
+    isDeliPickupOrder: isDeliPickupOrder,
     isoFromDate: isoFromDate,
   };
 })();
