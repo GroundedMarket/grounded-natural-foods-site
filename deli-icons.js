@@ -229,7 +229,46 @@ var DeliIcons = (function () {
       .toLowerCase();
   }
 
+  var CHOICES = [
+    { key: "wing", label: "Chicken wing", draw: wing },
+    { key: "mirepoix", label: "Celery, carrot, onion", draw: mirepoix },
+    { key: "roast-bird", label: "Roast bird", draw: roastBird },
+    { key: "honey", label: "Honey dipper", draw: honeyDipper },
+    { key: "lemon-pepper", label: "Lemon and pepper", draw: lemonPepper },
+    { key: "chili", label: "Chili pepper", draw: chili },
+    { key: "chipotle", label: "Chipotle", draw: chipotle },
+    { key: "bottle", label: "Sauce bottle", draw: bottle },
+    { key: "smoke-log", label: "Wood smoke", draw: smokeLog },
+    { key: "maple", label: "Maple leaf", draw: maple },
+    { key: "oven", label: "Oven roast", draw: ovenBird },
+    { key: "flame", label: "Grill flame", draw: flame },
+    { key: "pine", label: "Pine and smoke", draw: pine },
+    { key: "salsa", label: "Salsa", draw: salsa },
+    { key: "ham", label: "Ham", draw: ham },
+    { key: "glazed-ham", label: "Glazed ham", draw: glazedHam },
+    { key: "roast-beef", label: "Roast beef", draw: roastBeef },
+    { key: "pastrami", label: "Pastrami", draw: pastrami },
+    { key: "corned-beef", label: "Corned beef", draw: cornedBeef },
+    { key: "wedge", label: "Cheese wedge", draw: wedge },
+    { key: "swiss", label: "Swiss", draw: swiss },
+    { key: "wheel", label: "Cheese wheel", draw: wheel },
+    { key: "block", label: "Cheese block", draw: block },
+    { key: "pepper-jack", label: "Pepper cheese", draw: pepperJack },
+    { key: "smoked-wedge", label: "Smoked cheese", draw: smokedWedge },
+    { key: "ball", label: "Cheese ball", draw: ball },
+    { key: "marbled", label: "Marbled cheese", draw: marbled },
+    { key: "slice", label: "Cheese slice", draw: sliceSquare },
+  ];
+
   function iconFor(item) {
+    if (item && item.iconKey && item.iconKey !== "default") {
+      var chosen = null;
+      var c;
+      for (c = 0; c < CHOICES.length; c++) {
+        if (CHOICES[c].key === item.iconKey) chosen = CHOICES[c];
+      }
+      if (chosen) return chosen.draw();
+    }
     var names = [item && item.displayName, item && item.name, item && item.toastName];
     var i;
     var blob = "";
@@ -254,7 +293,14 @@ var DeliIcons = (function () {
     return wedge();
   }
 
-  return { iconFor: iconFor };
+  return {
+    iconFor: iconFor,
+    choices: function () {
+      return CHOICES.map(function (choice) {
+        return { key: choice.key, label: choice.label, svg: choice.draw() };
+      });
+    },
+  };
 })();
 
 if (typeof module !== "undefined" && module.exports) {

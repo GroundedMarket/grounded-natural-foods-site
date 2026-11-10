@@ -661,7 +661,21 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 #deli-weight-more{ display:block; margin-top:8px; max-width:220px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); font-family:var(--font-mono); }
 .deli-slip{ margin-top:8px; }
 .deli-slip-line{ display:flex; justify-content:space-between; gap:8px; align-items:center; padding:6px 0; border-bottom:1px dashed var(--line); font-family:var(--font-mono); font-size:14px; }
+.deli-manage-modal{ max-width:640px; }
 .deli-manage-row{ display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.deli-manage-name{ display:flex; gap:8px; align-items:center; min-width:0; }
+.deli-manage-name .mc-deli-icon{ width:26px; height:26px; }
+.deli-saved{ background:#e7f2e4; border:1px solid var(--green-deep, #2f6b45); border-radius:6px; padding:8px 10px; margin:0 0 10px; }
+.deli-settings-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+.deli-check{ display:flex; gap:8px; align-items:flex-start; margin:8px 0; font-size:14px; }
+.deli-icon-grid{ display:flex; flex-wrap:wrap; gap:6px; max-height:320px; overflow:auto; }
+.deli-icon-choice{ display:flex; flex-direction:column; align-items:center; gap:2px; width:72px; padding:6px 4px; border:1.5px solid var(--line); border-radius:6px; background:var(--paper); cursor:pointer; color:var(--ink); font-size:10px; line-height:1.15; }
+.deli-icon-choice.is-on{ border-color:var(--terracotta); background:var(--parchment); }
+.deli-icon-choice .mc-deli-icon{ width:28px; height:28px; }
+.deli-fold{ margin:8px 0; border-top:1px dashed var(--line); padding-top:6px; }
+.deli-fold summary{ cursor:pointer; font-family:var(--font-mono); font-size:13px; }
+#deli-manage-search{ flex:1; min-width:140px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); }
+@media (max-width:640px){ .deli-settings-grid{ grid-template-columns:1fr; } }
 .deli-preview-banner{ position:sticky; top:0; z-index:20; background:var(--kraft, #c49a6c); color:#3b2a17; padding:8px 12px; text-align:center; font-family:var(--font-mono); font-size:13px; }
 .mc-public-tile{ text-align:left; font:inherit; width:100%; }
 

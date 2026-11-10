@@ -3389,13 +3389,23 @@ function canSeeSoupSource() {
   const emp = db.employees.find((e) => e.id === session.employeeId);
   return !!(emp && (emp.role === "Kitchen" || emp.role === "Kitchen & Floor"));
 }
-// Meats & Cheese tab: master, plus Kitchen / Kitchen & Floor employees —
-// same gate as canSeeSoupSource above.
+// Online deli catalog edits: master, or an employee whose role contains
+// "management" — the same people who run Turkeys. Kitchen still sees the
+// case and can process orders, but does not change the online menu.
+function canManageOnlineDeli() {
+  if (!session) return false;
+  if (session.isMaster) return true;
+  const emp = db.employees.find((e) => e.id === session.employeeId);
+  return !!(emp && typeof emp.role === "string" && /management/i.test(emp.role));
+}
+// Meats & Cheese tab: master, Kitchen / Kitchen & Floor, and management.
 function hasMeatCheeseAccess() {
   if (!session) return false;
   if (session.isMaster) return true;
   const emp = db.employees.find((e) => e.id === session.employeeId);
-  return !!(emp && (emp.role === "Kitchen" || emp.role === "Kitchen & Floor"));
+  if (!emp) return false;
+  if (emp.role === "Kitchen" || emp.role === "Kitchen & Floor") return true;
+  return typeof emp.role === "string" && /management/i.test(emp.role);
 }
 function buildSoupCalHTML(monthKey, showWeekends, showSource) {
   const [y, m] = monthKey.split("-").map(Number);
@@ -4113,6 +4123,9 @@ function renderPortalTabs() {
     if (emp && (emp.role === "Kitchen" || emp.role === "Kitchen & Floor")) {
       tabs.splice(3, 0, "Soup Menu");
       tabs.splice(4, 0, "Meats & Cheese");
+    }
+    if (canManageOnlineDeli() && tabs.indexOf("Meats & Cheese") === -1) {
+      tabs.splice(3, 0, "Meats & Cheese");
     }
     if (canManageTurkeys()) tabs.push("Turkeys");
   }
@@ -7252,8 +7265,8 @@ function mcCaseHTML(cat) {
     <div class="mc-case-head">
       <h3>${mcCatLabel(cat)}</h3>
       ${
-        session.isMaster
-          ? `<button class="btn small outline" onclick="manageMeatCheeseItemsFlow('${cat}')">Manage</button>`
+        canManageOnlineDeli()
+          ? `<button class="btn small outline" onclick="manageMeatCheeseItemsFlow('${cat}')">Online menu</button>`
           : ""
       }
     </div>

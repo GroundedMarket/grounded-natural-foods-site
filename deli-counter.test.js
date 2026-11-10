@@ -316,6 +316,54 @@ test("quoted CSV commas do not shift the price column, and jerky and trays are s
   assert.deepEqual(parsed.skipped.map((row) => row.reason), ["jerky", "category"]);
 });
 
+test("a manager's hide flags and a higher meat minimum stay off the public list", () => {
+  const buffalo = catalog().find((item) => item.displayName === "Buffalo");
+  assert.equal(DC.isOrderable(buffalo, 0.25), true);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { hiddenOnline: true }), 0.25), false);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { notOfferedOnline: true }), 0.25), false);
+  assert.equal(DC.isOrderable(Object.assign({}, buffalo, { removed: true }), 0.25), false);
+  const short = Object.assign({}, buffalo, { lbsOnHand: 0.5, availability: "in", inStock: true });
+  assert.equal(DC.isOrderable(short, 0.25, { meatMinLbs: 1 }), false);
+  assert.equal(DC.isOrderable(short, 0.25, { meatMinLbs: 0.25 }), true);
+  const hours = DC.hoursFor("2026-11-11", new Date(2026, 10, 11, 10, 0), {
+    storeOpen: "10:00",
+    storeCloseWeekday: "17:00",
+    weekdayOrderCutoff: "15:00",
+  });
+  assert.equal(hours.open, 10 * 60);
+  assert.equal(hours.close, 17 * 60);
+  assert.equal(DC.hoursFor("2026-11-11", new Date(2026, 10, 11, 15, 30), { weekdayOrderCutoff: "15:00" }), null);
+  assert.equal(DC.readHours({ hoursCopy: "Pickup by the counter." }).hoursCopy, "Pickup by the counter.");
+});
+
+test("re-import keeps an icon and the hide flags", () => {
+  const buffalo = catalog().find((item) => item.displayName === "Buffalo");
+  const edited = Object.assign({}, buffalo, {
+    iconKey: "wing",
+    hiddenOnline: true,
+    notOfferedOnline: false,
+    removed: false,
+    displayNameCustom: true,
+  });
+  const next = DC.applyPosRows([edited], [{
+    toastItemId: buffalo.toastItemId,
+    sku: buffalo.sku,
+    toastName: buffalo.toastName,
+    category: "meat",
+    lbsOnHand: 3,
+    pricePerLb: buffalo.pricePerLb,
+  }], { threshold: 0.25 })[0];
+  assert.equal(next.item.iconKey, "wing");
+  assert.equal(next.item.hiddenOnline, true);
+  assert.equal(next.item.removed, false);
+  assert.equal(DC.isOrderable(next.item, 0.25), false);
+  const chipped = catalog().find((item) => item.toastName === "Chipped Meat");
+  assert.equal(chipped.notOfferedOnline, true);
+  const forced = Icons.iconFor({ displayName: "Buffalo", iconKey: "flame", category: "meat", meatType: "chicken" });
+  assert.notEqual(forced, Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" }));
+  assert.equal(Icons.choices().some((choice) => choice.key === "wing"), true);
+});
+
 test("each starter item has its own drawn icon, with a type fallback", () => {
   const buffalo = Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" });
   const swiss = Icons.iconFor({ displayName: "Lacey Swiss", category: "cheese" });

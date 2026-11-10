@@ -11,6 +11,46 @@ service cloud.firestore {
         || request.auth.token.role == 'employee'
         || request.auth.token.role == 'display');
     }
+    // Same people who run Turkeys: master, or an employee whose role
+    // contains "management". Kitchen can still work the case and orders.
+    function canEditOnlineDeli() {
+      return isMaster() || (
+        signedIn()
+        && request.auth.token.role == 'employee'
+        && request.auth.token.employeeId is string
+        && exists(/databases/$(database)/documents/employees/$(request.auth.token.employeeId))
+        && get(/databases/$(database)/documents/employees/$(request.auth.token.employeeId)).data.role.matches('(?i).*management.*')
+      );
+    }
+    function deliHhmm(value) {
+      return value is string && value.matches('^\\d{2}:\\d{2}$');
+    }
+    function deliSettingsShape(data) {
+      return data.keys().hasOnly([
+          'outOfStockAtLbs', 'meatMinLbs', 'storeOpen', 'weekdayOrderCutoff',
+          'storeCloseWeekday', 'storeCloseSaturday', 'counterCloseWeekday', 'hoursCopy'
+        ])
+        && data.keys().size() > 0
+        && (!data.keys().hasAny(['outOfStockAtLbs']) || (data.outOfStockAtLbs is number && data.outOfStockAtLbs >= 0 && data.outOfStockAtLbs <= 5))
+        && (!data.keys().hasAny(['meatMinLbs']) || (data.meatMinLbs is number && data.meatMinLbs > 0 && data.meatMinLbs <= 5))
+        && (!data.keys().hasAny(['storeOpen']) || deliHhmm(data.storeOpen))
+        && (!data.keys().hasAny(['weekdayOrderCutoff']) || deliHhmm(data.weekdayOrderCutoff))
+        && (!data.keys().hasAny(['storeCloseWeekday']) || deliHhmm(data.storeCloseWeekday))
+        && (!data.keys().hasAny(['storeCloseSaturday']) || deliHhmm(data.storeCloseSaturday))
+        && (!data.keys().hasAny(['counterCloseWeekday']) || deliHhmm(data.counterCloseWeekday))
+        && (!data.keys().hasAny(['hoursCopy']) || (data.hoursCopy is string && data.hoursCopy.size() > 0 && data.hoursCopy.size() <= 500));
+    }
+    // Meat minimum lives on store/deliCounter. Missing or out of range falls
+    // back to 1/4 lb, which is what the deployed rule already required.
+    function deliMeatMin() {
+      return exists(/databases/$(database)/documents/store/deliCounter)
+        && get(/databases/$(database)/documents/store/deliCounter).data.keys().hasAny(['meatMinLbs'])
+        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs is number
+        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs > 0
+        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs <= 5
+        ? get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs
+        : 0.25;
+    }
 
     // ---- PUBLIC MENU DATA: anyone on the site (incl. silent anonymous
     //      customers) can read; only master can change ----
@@ -30,16 +70,19 @@ service cloud.firestore {
     match /produce/{id}          { allow read: if signedIn(); allow write: if isMaster(); }
     match /closedDates/{id}      { allow read: if signedIn(); allow write: if isMaster(); }
     match /store/settings        { allow read: if signedIn(); allow write: if isMaster(); }
-    // Out-of-stock threshold for the deli counter. Customers need it so the
-    // public list matches what staff saved. Only staff can change it.
-    match /store/deliCounter      { allow read: if signedIn(); allow write: if isStaff(); }
+    // Threshold, meat minimum, and pickup hours. Customers read this so the
+    // public list matches what a manager saved. Only management can change it.
+    match /store/deliCounter {
+      allow read: if signedIn();
+      allow write: if canEditOnlineDeli() && deliSettingsShape(request.resource.data);
+    }
 
     // ---- MEATS & CHEESE ----
     // meatCheeseItems is the catalog. Customers can read it. Shelf pieces
     // and sell-by dates stay in meatCheeseBlocks, which customers cannot
     // read. availableWeight is still the case rollup any staff member
     // updates. lbsOnHand / price / display name / meat type are the online
-    // counter, edited by staff or a Toast CSV import.
+    // counter, edited by management or a Toast CSV import.
     function counterShape(data) {
       return data.catalog == 'counter'
         && data.category in ['meat', 'cheese']
@@ -60,7 +103,11 @@ service cloud.firestore {
         && data.inStock is bool
         && data.displayNameCustom is bool
         && data.meatTypeEdited is bool
-        && (data.category == 'cheese' || data.meatType in ['chicken', 'turkey', 'ham', 'beef', 'other']);
+        && (data.category == 'cheese' || data.meatType in ['chicken', 'turkey', 'ham', 'beef', 'other'])
+        && (!data.keys().hasAny(['iconKey']) || (data.iconKey is string && data.iconKey.size() <= 40))
+        && (!data.keys().hasAny(['hiddenOnline']) || data.hiddenOnline is bool)
+        && (!data.keys().hasAny(['notOfferedOnline']) || data.notOfferedOnline is bool)
+        && (!data.keys().hasAny(['removed']) || data.removed is bool);
     }
     match /meatCheeseItems/{id}  {
       allow read: if signedIn();
@@ -68,25 +115,30 @@ service cloud.firestore {
       // Case pieces still roll their shelf weight up to this one field.
       allow update: if isStaff()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['availableWeight']);
-      // Counter stock: pounds, price, display name, meat type, discontinued.
-      // Staff may also turn an existing case item into a counter item.
-      allow update: if isStaff()
+      // Online catalog: name, group, price, pounds, icon, hide / discontinue.
+      // Management and master. A hand-added item has an empty Toast id.
+      // An import keeps the Toast id as the document id.
+      allow update: if canEditOnlineDeli()
         && counterShape(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'catalog', 'category', 'toastItemId', 'sku', 'toastName', 'name',
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
-          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited'
+          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed'
         ]);
-      allow create: if isStaff()
+      allow create: if canEditOnlineDeli()
         && counterShape(request.resource.data)
-        && request.resource.data.toastItemId == id
-        && request.resource.data.toastItemId.size() > 8
+        && (
+          (request.resource.data.toastItemId == id && request.resource.data.toastItemId.size() > 8)
+          || (request.resource.data.posSource == 'manual' && request.resource.data.toastItemId == '')
+        )
         && request.resource.data.keys().hasOnly([
           'catalog', 'category', 'toastItemId', 'sku', 'toastName', 'name',
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
-          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited'
+          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed'
         ]);
     }
     // meatCheeseSlots is just which catalog item sits in which visual case
@@ -188,8 +240,12 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.lbsOnHand >= item.weightLbs
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.pricePerLb == item.pricePerLb
         && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.toastName != 'Chipped Meat'
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('sku', '') != '70238'
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('hiddenOnline', false) != true
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('notOfferedOnline', false) != true
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('removed', false) != true
         && (get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.category != 'meat'
-          || item.weightLbs >= 0.25);
+          || item.weightLbs >= deliMeatMin());
     }
     function deliLinesOk(items) {
       return items.size() >= 1
