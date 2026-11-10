@@ -262,7 +262,7 @@ html, body{ overflow-x:hidden; width:100%; }
 .order-incomplete{ background:#FBE4DD; border-color:var(--red-flag); }
 .order-partial{ background:#FBF0DA; border-color:var(--terracotta); }
 .card h4{ margin:0 0 6px; font-family:var(--font-display); font-size:18px; color:var(--brown); }
-.btn{ background:var(--green-deep); color:var(--paper); border:none; padding:8px 16px; border-radius:8px; font-size:13.5px; font-weight:600; }
+.btn{ background:var(--green-deep); color:var(--paper); border:none; padding:8px 16px; border-radius:8px; font-size:13.5px; font-weight:600; -webkit-appearance:none; appearance:none; -webkit-text-fill-color:currentcolor; }
 .btn:hover{ background:var(--terracotta); }
 .btn.small{ padding:5px 11px; font-size:12px; }
 .btn.outline{ background:none; border:1px solid var(--green-deep); color:var(--green-deep); }
@@ -677,6 +677,34 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 #deli-manage-search{ flex:1; min-width:140px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--cream); color:var(--ink); }
 @media (max-width:640px){ .deli-settings-grid{ grid-template-columns:1fr; } }
 .deli-preview-banner{ position:sticky; top:0; z-index:20; background:var(--kraft, #c49a6c); color:#3b2a17; padding:8px 12px; text-align:center; font-family:var(--font-mono); font-size:13px; }
-.mc-public-tile{ text-align:left; font:inherit; width:100%; }
+.mc-public-tile{ text-align:left; font:inherit; width:100%; color:var(--ink); -webkit-appearance:none; appearance:none; }
+/* iOS Safari fills button text with system blue. The fill has to follow
+   each element's own color, or the price and icons would turn ink too. */
+.mc-public-tile,
+.mc-public-tile *,
+.deli-weight-chip,
+.mc-slice-btn,
+.mc-slice-btn *,
+.deli-icon-choice,
+.deli-icon-choice *,
+.deli-fold summary{
+  -webkit-text-fill-color:currentcolor;
+}
+.mc-public-tile-info strong{ color:inherit; }
+.deli-weight-chip,
+.mc-slice-btn,
+.deli-icon-choice{
+  -webkit-appearance:none;
+  appearance:none;
+}
+.deli-editor input,
+.deli-editor textarea,
+.deli-checkout input,
+.deli-checkout select,
+.deli-checkout textarea,
+#deli-weight-input{
+  color:var(--ink);
+  -webkit-text-fill-color:currentcolor;
+}
 
 .cart-mc-weight{ font-family:var(--font-mono); font-size:13px; color:var(--ink-soft); padding:4px 8px; white-space:nowrap; }
