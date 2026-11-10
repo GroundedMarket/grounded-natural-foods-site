@@ -8028,7 +8028,7 @@ function renderMeatCheeseOrderModal() {
     <div class="field">
       <label>Slice Style</label>
       <div class="mc-slice-grid">
-        ${MC_SLICE_STYLES.map(
+        ${MC_SLICE_STYLES.filter((s) => item.category !== "cheese" || s.id !== "shaved").map(
           (s) =>
             `<button type="button" class="mc-slice-btn ${
               st.sliceStyle === s.id ? "is-on" : ""
