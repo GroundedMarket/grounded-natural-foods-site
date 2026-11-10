@@ -84,7 +84,15 @@ async function printOrder(order) {
         .align("LT");
 
       order.items.forEach((item) => {
-        printer.style("NORMAL").text(`${item.qty}x ${item.name}`);
+        if (item.kind === "meatcheese") {
+          printer
+            .style("NORMAL")
+            .text(
+              `${item.weightLbs} lb ${item.sliceStyleLabel || ""} — ${item.name}`
+            );
+        } else {
+          printer.style("NORMAL").text(`${item.qty}x ${item.name}`);
+        }
 
         if (item.note && item.note.trim() !== "") {
           printer.style("B").text(`Note: ${item.note}`).style("NORMAL");

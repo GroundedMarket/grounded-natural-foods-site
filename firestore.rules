@@ -30,21 +30,64 @@ service cloud.firestore {
     match /produce/{id}          { allow read: if signedIn(); allow write: if isMaster(); }
     match /closedDates/{id}      { allow read: if signedIn(); allow write: if isMaster(); }
     match /store/settings        { allow read: if signedIn(); allow write: if isMaster(); }
+    // Out-of-stock threshold for the deli counter. Customers need it so the
+    // public list matches what staff saved. Only staff can change it.
+    match /store/deliCounter      { allow read: if signedIn(); allow write: if isStaff(); }
 
     // ---- MEATS & CHEESE ----
-    // meatCheeseItems is the catalog (name, brand, price, notes, emoji,
-    // availableWeight). Customers read it (for the public ordering list),
-    // only master may create/rename/retire an item — EXCEPT the
-    // availableWeight rollup, which any staff member updates as they add,
-    // weigh, move, or fulfill blocks in the deli case (see app.js:
-    // recalcMeatCheeseAvailableWeight). This is the ONLY inventory number
-    // customers' reads ever see — individual pieces/dates live only in
-    // meatCheeseBlocks, which customers can never read at all.
+    // meatCheeseItems is the catalog. Customers can read it. Shelf pieces
+    // and sell-by dates stay in meatCheeseBlocks, which customers cannot
+    // read. availableWeight is still the case rollup any staff member
+    // updates. lbsOnHand / price / display name / meat type are the online
+    // counter, edited by staff or a Toast CSV import.
+    function counterShape(data) {
+      return data.catalog == 'counter'
+        && data.category in ['meat', 'cheese']
+        && data.toastItemId is string
+        && data.toastItemId.size() <= 80
+        && data.displayName is string
+        && data.displayName.size() > 0
+        && data.displayName.size() <= 80
+        && data.name is string
+        && data.lbsOnHand is number
+        && data.lbsOnHand >= 0
+        && data.lbsOnHand <= 10000
+        && data.pricePerLb is number
+        && data.pricePerLb >= 0
+        && data.pricePerLb <= 500
+        && data.availability in ['auto', 'in', 'out', 'discontinued']
+        && data.discontinued == (data.availability == 'discontinued')
+        && data.inStock is bool
+        && data.displayNameCustom is bool
+        && data.meatTypeEdited is bool
+        && (data.category == 'cheese' || data.meatType in ['chicken', 'turkey', 'ham', 'beef', 'other']);
+    }
     match /meatCheeseItems/{id}  {
       allow read: if signedIn();
       allow write: if isMaster();
+      // Case pieces still roll their shelf weight up to this one field.
       allow update: if isStaff()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['availableWeight']);
+      // Counter stock: pounds, price, display name, meat type, discontinued.
+      // Staff may also turn an existing case item into a counter item.
+      allow update: if isStaff()
+        && counterShape(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'catalog', 'category', 'toastItemId', 'sku', 'toastName', 'name',
+          'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
+          'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
+          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited'
+        ]);
+      allow create: if isStaff()
+        && counterShape(request.resource.data)
+        && request.resource.data.toastItemId == id
+        && request.resource.data.toastItemId.size() > 8
+        && request.resource.data.keys().hasOnly([
+          'catalog', 'category', 'toastItemId', 'sku', 'toastName', 'name',
+          'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
+          'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
+          'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited'
+        ]);
     }
     // meatCheeseSlots is just which catalog item sits in which visual case
     // position — not sensitive, but staff (not just master) assign/drag
@@ -73,11 +116,130 @@ service cloud.firestore {
     //      guessable value — the document ID itself is the only thing that
     //      grants access, and only staff can ever discover IDs in bulk.
     //      Update/delete remain staff-only. ----
+    function validPublicKitchenOrder() {
+      return !request.resource.data.keys().hasAny(['channel', 'deliStatus', 'kind'])
+        && request.resource.data.keys().hasOnly([
+          'customerName', 'customerPhone', 'pickupDate', 'pickupTime', 'weekKey',
+          'items', 'status', 'submittedAt', 'autoprinted'
+        ])
+        && request.resource.data.customerName is string
+        && request.resource.data.customerName.size() >= 1
+        && request.resource.data.customerName.size() <= 80
+        && request.resource.data.customerPhone is string
+        && request.resource.data.customerPhone.size() >= 1
+        && request.resource.data.customerPhone.size() <= 40
+        && request.resource.data.pickupDate is string
+        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.pickupTime is string
+        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
+        && request.resource.data.weekKey is string
+        && request.resource.data.weekKey.size() <= 20
+        && request.resource.data.status == 'incomplete'
+        && request.resource.data.autoprinted == false
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 40
+        && request.resource.data.submittedAt is string
+        && request.resource.data.submittedAt.size() <= 40;
+    }
+    function validPublicChangeRequest() {
+      return request.resource.data.kind == 'changeRequest'
+        && request.resource.data.keys().hasOnly([
+          'kind', 'targetOrderId', 'customerName', 'customerPhone',
+          'removeLineIds', 'addItems', 'note', 'status', 'staffComment', 'submittedAt'
+        ])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.targetOrderId is string
+        && request.resource.data.targetOrderId.size() > 0
+        && request.resource.data.customerName is string
+        && request.resource.data.customerPhone is string
+        && request.resource.data.removeLineIds is list
+        && request.resource.data.addItems is list
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 500
+        && request.resource.data.staffComment == ''
+        && request.resource.data.submittedAt is string;
+    }
+    function deliLineOk(item) {
+      return item.keys().hasOnly([
+          'kind', 'catalog', 'itemId', 'name', 'weightLbs', 'sliceStyle',
+          'sliceStyleLabel', 'pricePerLb', 'note', 'lineId', 'qty'
+        ])
+        && item.kind == 'meatcheese'
+        && item.catalog == 'counter'
+        && item.qty == 1
+        && item.weightLbs is number
+        && item.weightLbs > 0
+        && item.weightLbs <= 30
+        && item.sliceStyle in ['chipped', 'shaved', 'thin', 'medium', 'large', 'thick']
+        && item.sliceStyleLabel is string
+        && item.note is string
+        && item.note.size() <= 140
+        && item.name is string
+        && item.name.size() > 0
+        && item.name.size() <= 80
+        && item.itemId is string
+        && item.lineId is string
+        && item.pricePerLb is number
+        && exists(/databases/$(database)/documents/meatCheeseItems/$(item.itemId))
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.catalog == 'counter'
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.inStock == true
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.discontinued == false
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.lbsOnHand >= item.weightLbs
+        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.pricePerLb == item.pricePerLb;
+    }
+    function deliLinesOk(items) {
+      return items.size() >= 1
+        && items.size() <= 8
+        && deliLineOk(items[0])
+        && (items.size() < 2 || deliLineOk(items[1]))
+        && (items.size() < 3 || deliLineOk(items[2]))
+        && (items.size() < 4 || deliLineOk(items[3]))
+        && (items.size() < 5 || deliLineOk(items[4]))
+        && (items.size() < 6 || deliLineOk(items[5]))
+        && (items.size() < 7 || deliLineOk(items[6]))
+        && (items.size() < 8 || deliLineOk(items[7]));
+    }
+    function validPublicDeliOrder() {
+      return request.resource.data.channel == 'deliCounter'
+        && request.resource.data.keys().hasOnly([
+          'channel', 'customerName', 'customerPhone', 'pickupDate', 'pickupTime',
+          'notes', 'items', 'deliStatus', 'status', 'payAtPickup', 'stockDecremented',
+          'submittedAt', 'autoprinted', 'weekKey'
+        ])
+        && request.resource.data.customerName is string
+        && request.resource.data.customerName.size() >= 2
+        && request.resource.data.customerName.size() <= 80
+        && request.resource.data.customerPhone is string
+        && request.resource.data.customerPhone.size() >= 10
+        && request.resource.data.customerPhone.size() <= 40
+        && request.resource.data.pickupDate is string
+        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.pickupTime is string
+        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 300
+        && request.resource.data.deliStatus == 'new'
+        && request.resource.data.status == 'incomplete'
+        && request.resource.data.payAtPickup == true
+        && request.resource.data.stockDecremented == false
+        && request.resource.data.autoprinted == false
+        && request.resource.data.weekKey == ''
+        && request.resource.data.submittedAt is string
+        && request.resource.data.submittedAt.size() <= 40
+        && request.resource.data.items is list
+        && deliLinesOk(request.resource.data.items);
+    }
     match /orders/{id}{
-      allow create: if signedIn();
+      allow create: if isStaff()
+        || validPublicKitchenOrder()
+        || validPublicChangeRequest()
+        || validPublicDeliOrder();
       allow get: if isStaff() || signedIn();
       allow list: if isStaff();
-      allow update, delete: if isStaff();
+      allow update: if isStaff();
+      // Deli pickup orders stay on record, the same way turkey reservations do.
+      allow delete: if isStaff() && resource.data.channel != 'deliCounter';
     }
 
     // ---- STAFF OPERATIONAL DATA: staff read/write ----

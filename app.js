@@ -316,6 +316,10 @@ const db = {
   meatCheeseItems: [],
   meatCheeseSlots: [],
   meatCheeseBlocks: [],
+  // Online deli counter. outOfStockAtLbs is the cutoff for availability
+  // "auto": pounds at or under this are out of stock. Negative counts are
+  // stored as 0 before this comparison.
+  deliCounter: { outOfStockAtLbs: 0.25 },
   // Thanksgiving turkeys. Inventory is safe to show customers (no names).
   // Reservations are staff-only and are never emailed or texted.
   turkeyInventory: [],
@@ -624,6 +628,11 @@ function buildEposPrintXML(order) {
     ) {
       body += `x${item.qty}  ${esc(item.name)}&#10;`;
       if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+    } else if (item.kind === "meatcheese") {
+      body += `${esc(mcFmtLbs(item.weightLbs))} lb ${esc(
+        item.sliceStyleLabel || item.sliceStyle || ""
+      )}  ${esc(item.name)}&#10;`;
+      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
     } else {
       body += `x${item.qty || 1}  Custom ${
         item.customType === "panini" ? "Panini" : "Salad"
@@ -635,6 +644,10 @@ function buildEposPrintXML(order) {
     }
   });
   body += `------------------------------&#10;`;
+  if (order.channel === "deliCounter" || order.payAtPickup) {
+    body += `PAY AT PICKUP&#10;`;
+    if (order.notes) body += `Note: ${esc(order.notes)}&#10;`;
+  }
   body += `Submitted: ${new Date(
     order.submittedAt
   ).toLocaleString()}&#10;&#10;`;
@@ -725,14 +738,17 @@ function setOrdersViewMode(mode) {
   renderPortalBody();
 }
 function ordersModeToggleHTML() {
-  const idx = { kitchen: 0, coffee: 1, all: 2 }[ordersViewMode];
-  return `<div class="mode-toggle">
+  const idx = { kitchen: 0, coffee: 1, deli: 2, all: 3 }[ordersViewMode];
+  return `<div class="mode-toggle modes-4">
     <button class="mode-toggle-opt ${
       ordersViewMode === "kitchen" ? "active" : ""
     }" onclick="setOrdersViewMode('kitchen')">Kitchen</button>
     <button class="mode-toggle-opt ${
       ordersViewMode === "coffee" ? "active" : ""
     }" onclick="setOrdersViewMode('coffee')">Coffee</button>
+    <button class="mode-toggle-opt ${
+      ordersViewMode === "deli" ? "active" : ""
+    }" onclick="setOrdersViewMode('deli')">Deli</button>
     <button class="mode-toggle-opt ${
       ordersViewMode === "all" ? "active" : ""
     }" onclick="setOrdersViewMode('all')">All</button>
@@ -886,8 +902,12 @@ function ordersTabHTML() {
     list = list.filter((o) => o.pickupDate === ordersDateFilter);
   // The toggle only controls what's VISIBLE/dimmed here — it never touches
   // what actually gets printed, which always includes every item regardless.
-  if (ordersViewMode === "kitchen") list = list.filter(orderHasNonCoffee);
-  else if (ordersViewMode === "coffee") list = list.filter(orderHasCoffee);
+  if (ordersViewMode === "kitchen")
+    list = list.filter((o) => o.channel !== "deliCounter" && orderHasNonCoffee(o));
+  else if (ordersViewMode === "coffee")
+    list = list.filter((o) => o.channel !== "deliCounter" && orderHasCoffee(o));
+  else if (ordersViewMode === "deli")
+    list = list.filter((o) => o.channel === "deliCounter");
 
   const today = todayISO();
   const upcoming = list.filter((o) => o.pickupDate >= today);
@@ -1061,7 +1081,7 @@ function openOrdersDayModal(dateISO, filterMode) {
   list = list.slice().sort((a, b) => a.pickupTime.localeCompare(b.pickupTime));
   openModal(`<h3>${title}</h3>
     <div class="search-panel-list" style="max-height:400px">
-      ${list.length ? list.map((o) => `<div class="search-panel-row" style="display:block" onclick="closeModal();openOrderDetail('${o.id}')">${formatTime12hr(o.pickupTime)} — ${escHtmlAttr(o.customerName)} <span style="color:var(--ink-soft);font-size:12px">(${ORDER_STATUS_LABEL[orderStatus(o)]})</span></div>`).join("") : '<div class="search-panel-row">No orders.</div>'}
+      ${list.length ? list.map((o) => `<div class="search-panel-row" style="display:block" onclick="closeModal();openOrderDetail('${o.id}')">${formatTime12hr(o.pickupTime)} — ${escHtmlAttr(o.customerName)} <span style="color:var(--ink-soft);font-size:12px">(${orderPillLabel(o)})</span></div>`).join("") : '<div class="search-panel-row">No orders.</div>'}
     </div>`);
 }
 // Completion is tracked per-ITEM now (item.done), not just per-order, so a
@@ -1070,6 +1090,11 @@ function openOrdersDayModal(dateISO, filterMode) {
 // order-level status for orders placed before this existed (no item.done
 // data at all yet), so nothing already in the system breaks.
 function orderStatus(o) {
+  if (o && o.channel === "deliCounter") {
+    if (o.deliStatus === "pickedUp") return "completed";
+    if (o.deliStatus === "ready") return "partial";
+    return "incomplete";
+  }
   const items = o.items || [];
   if (!items.length)
     return o.status === "completed" ? "completed" : "incomplete";
@@ -1086,6 +1111,14 @@ const ORDER_STATUS_LABEL = {
   partial: "Partially Complete",
   incomplete: "Incomplete",
 };
+function orderPillLabel(o) {
+  if (o && o.channel === "deliCounter") {
+    if (o.deliStatus === "pickedUp") return "Picked Up";
+    if (o.deliStatus === "ready") return "Ready";
+    return "New";
+  }
+  return ORDER_STATUS_LABEL[orderStatus(o)];
+}
 function orderCardHTML(o) {
   const status = orderStatus(o);
   const cardClass =
@@ -1101,7 +1134,7 @@ function orderCardHTML(o) {
       <strong>${formatTime12hr(o.pickupTime)} — ${escHtmlAttr(
     o.customerName
   )}</strong>
-      <span class="pill">${ORDER_STATUS_LABEL[status]}</span>
+      <span class="pill">${orderPillLabel(o)}</span>
     </div>
     <div style="font-size:12.5px;color:var(--ink-soft)">${escHtmlAttr(
       o.customerPhone
@@ -1144,7 +1177,7 @@ function toggleOrderItemDone(orderId, idx) {
   // loose weight is drawn FIFO off the soonest-expiring case blocks),
   // unmarking it restores exactly what was taken. See allocateMeatCheeseStock
   // / restoreMeatCheeseStock below.
-  if (item.kind === "meatcheese") {
+  if (item.kind === "meatcheese" && item.catalog !== "counter") {
     if (item.done) allocateMeatCheeseStock(item);
     else restoreMeatCheeseStock(item);
   }
@@ -1155,6 +1188,10 @@ function toggleOrderItemDone(orderId, idx) {
 function openOrderDetail(id) {
   const o = db.orders.find((x) => x.id === id);
   if (!o) return;
+  if (o.channel === "deliCounter" && typeof deliOpenStaffOrder === "function") {
+    deliOpenStaffOrder(o);
+    return;
+  }
   const items = o.items || [];
   let scope, scopeLabel;
   if (ordersViewMode === "kitchen") {
@@ -1202,6 +1239,11 @@ function openOrderDetail(id) {
     </div>`);
 }
 function deleteOrder(id) {
+  const existing = db.orders.find((o) => o.id === id);
+  if (existing && existing.channel === "deliCounter") {
+    alert("Deli pickup orders stay on record. Mark the order Picked Up instead of deleting it.");
+    return;
+  }
   if (!confirm("Delete this order? This cannot be undone.")) return;
   db.orders = db.orders.filter((o) => o.id !== id);
   fsdb
@@ -1690,6 +1732,7 @@ function initFirebaseSync() {
   bindRecordCollection("meatCheeseBlocks", (arr) => {
     db.meatCheeseBlocks = arr;
   });
+  if (typeof deliBindSettings === "function") deliBindSettings();
   migrateKeyedRecordCollectionIfNeeded(
     "localUpcDb",
     "localUpcDb",
@@ -3714,12 +3757,13 @@ function renderCustomerOrdersModalContent() {
 }
 const CHANGE_REQUEST_STATUS_LABEL = { pending: "Pending Review", approved: "Approved", denied: "Denied" };
 function localOrderCardHTML(order) {
-  const canRequestChanges = order.pickupDate >= todayISO();
-  const status = orderStatus(order);
+  const canRequestChanges =
+    order.channel !== "deliCounter" && order.pickupDate >= todayISO();
+  const statusLabel = orderPillLabel(order);
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <strong>${order.pickupDate} · ${formatTime12hr(order.pickupTime)}</strong>
-      <span class="pill">${ORDER_STATUS_LABEL[status] || status}</span>
+      <span class="pill">${statusLabel}</span>
     </div>
     <div style="margin:8px 0;font-size:13.5px">${(order.items || [])
       .map((item) => `×${item.qty || 1} ${escHtmlAttr(cartLineLabel(item))}`)
@@ -3741,7 +3785,11 @@ function localOrderCardHTML(order) {
         : ""
     }
     <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap">
-      <button class="btn small outline" onclick="reorderLocalOrder('${order.id}')">Reorder</button>
+      ${
+        order.channel === "deliCounter"
+          ? ""
+          : `<button class="btn small outline" onclick="reorderLocalOrder('${order.id}')">Reorder</button>`
+      }
       ${
         canRequestChanges
           ? `<button class="btn small outline" onclick="openOrderChangeRequestFlow('${order.id}')">Request Changes</button>`
@@ -7175,7 +7223,9 @@ function mcFmtDate(iso) {
 }
 
 function meatCheeseHTML() {
+  if (typeof deliMaybeSeed === "function") deliMaybeSeed();
   return `<h2 class="section-title">Meats &amp; Cheese</h2>
+    ${typeof deliCounterToolbarHTML === "function" ? deliCounterToolbarHTML() : ""}
     <p style="font-size:12.5px;color:var(--ink-soft);margin:6px 0 16px">Tap an empty slot to stock a new item. Tap a filled slot to add, weigh, or move its pieces. Drag a filled slot to reorder the case.</p>
     ${mcCaseHTML("meat")}
     ${mcCaseHTML("cheese")}
@@ -7220,8 +7270,13 @@ function mcSlotTileHTML(cat, slot) {
     <span class="mc-tile-emoji">${escHtml(
       item.emoji || (cat === "meat" ? "🥩" : "🧀")
     )}</span>
-    <span class="mc-tile-name">${escHtml(item.name)}</span>
+    <span class="mc-tile-name">${escHtml(item.displayName || item.name)}</span>
     <span class="mc-tile-weight">${mcFmtLbs(weight)} lb</span>
+    ${
+      item.catalog === "counter" && typeof deliOnlineLabel === "function"
+        ? `<span class="mc-tile-online">${escHtml(deliOnlineLabel(item))}</span>`
+        : ""
+    }
   </button>`;
 }
 function mcEmptySlotTileHTML(cat, isNext) {
@@ -7410,6 +7465,10 @@ function ensureMeatCheeseSlotForItem(itemId) {
 
 /* ---------------- catalog management (master only) ---------------- */
 function manageMeatCheeseItemsFlow(cat) {
+  if (typeof deliManageCatalog === "function") {
+    deliManageCatalog(cat);
+    return;
+  }
   const items = mcCatalog(cat);
   openModal(`<h3>Manage ${mcCatLabel(cat)}</h3>
     <div class="search-panel-list" style="max-height:340px">
@@ -7467,14 +7526,30 @@ function saveNewMeatCheeseItem(cat, returnToAssign) {
     return;
   }
   const id = newId("mci");
+  const priceText = document.getElementById("mci-price").value.trim();
+  const pricePerLb = Number(priceText);
   const payload = {
     category: cat,
     name,
+    displayName: name,
+    displayNameCustom: true,
     brand: document.getElementById("mci-brand").value.trim(),
-    price: document.getElementById("mci-price").value.trim(),
+    price: priceText,
+    pricePerLb: isFinite(pricePerLb) && pricePerLb >= 0 ? Math.round(pricePerLb * 100) / 100 : 0,
     notes: document.getElementById("mci-notes").value.trim(),
     emoji,
     availableWeight: 0,
+    catalog: "counter",
+    lbsOnHand: 0,
+    inStock: false,
+    availability: "out",
+    discontinued: false,
+    posSource: "manual",
+    toastItemId: "",
+    sku: "",
+    toastName: "",
+    meatType: cat === "meat" && typeof DeliCounter !== "undefined" ? DeliCounter.detectMeatType(name) : "",
+    meatTypeEdited: false,
   };
   db.meatCheeseItems.push({ id, ...payload });
   fsdb
@@ -7488,6 +7563,10 @@ function saveNewMeatCheeseItem(cat, returnToAssign) {
   renderPortalBody();
 }
 function editMeatCheeseItemFlow(itemId) {
+  if (typeof deliEditItem === "function") {
+    deliEditItem(itemId);
+    return;
+  }
   const item = mcItem(itemId);
   if (!item) return;
   openModal(`<h3>Edit ${mcCatSingular(item.category)}</h3>
@@ -7588,7 +7667,7 @@ function openMeatCheeseSlotPopup(cat, itemId) {
       ${blocks.map((b) => mcBlockTileHTML(b)).join("")}
       <button type="button" class="mc-block-tile mc-block-add" onclick="addMeatCheeseBlockFlow('${itemId}')">+ Add</button>
     </div>
-    <div class="modal-actions"><button class="btn outline" onclick="closeModal()">Close</button></div>`);
+    <div class="modal-actions"><button class="btn outline" onclick="deliEditItem('${itemId}')">Online stock</button><button class="btn outline" onclick="closeModal()">Close</button></div>`);
 }
 function mcBlockTileHTML(b) {
   const pct = b.weightInitial
@@ -7790,27 +7869,18 @@ function mcFreezerTileHTML(b) {
 
 /* ---------------- customer-facing public section + ordering ---------------- */
 function renderMeatCheesePublic() {
-  const mcStatus = publicSectionStatus(["meatCheeseItems", "meatCheeseSlots"]);
+  try {
+    if (typeof deliRenderPublicLists === "function") {
+      deliRenderPublicLists();
+      return;
+    }
+  } catch (err) {
+    console.error("Meats & cheese public render failed:", err);
+  }
   MC_CATEGORIES.forEach((c) => {
     const el = document.getElementById(`mc-public-${c.plural}`);
     if (!el) return;
-    if (mcStatus === "loading") {
-      el.innerHTML = marketLoadingHTML("Loading Meats & Cheese");
-      return;
-    }
-    if (mcStatus === "error") {
-      el.innerHTML = marketErrorHTML(
-        "Couldn't load meats and cheese. Check your connection and refresh."
-      );
-      return;
-    }
-    const tiles = mcSlotsFor(c.id)
-      .map((s) => mcItem(s.itemId))
-      .filter((item) => item && item.availableWeight > 0)
-      .map((item) => mcPublicTileHTML(item))
-      .join("");
-    el.innerHTML =
-      tiles || '<p class="empty-note">Nothing available right now.</p>';
+    el.innerHTML = '<p class="empty-note">Nothing available right now.</p>';
   });
 }
 function mcPublicTileHTML(item) {
@@ -7833,7 +7903,11 @@ function mcPublicTileHTML(item) {
   </div>`;
 }
 function openMeatCheeseOrderPickerModal() {
-  const mcStatus = publicSectionStatus(["meatCheeseItems", "meatCheeseSlots"]);
+  if (typeof deliOpenGroupedPicker === "function") {
+    deliOpenGroupedPicker();
+    return;
+  }
+  const mcStatus = publicSectionStatus(["meatCheeseItems"]);
   if (mcStatus === "loading") {
     openModal(`<h3>Order Meat &amp; Cheese</h3>
       ${marketLoadingHTML("Loading Meats & Cheese")}
@@ -7874,6 +7948,10 @@ let mcOrderState = null; // {itemId, weightLbs, sliceStyle, wholePieceBlockId, p
 function openMeatCheeseOrderModal(itemId) {
   const item = mcItem(itemId);
   if (!item) return;
+  if (item.catalog === "counter" && typeof deliOpenItem === "function") {
+    deliOpenItem(itemId);
+    return;
+  }
   mcOrderState = {
     itemId,
     weightLbs: "",
@@ -11984,7 +12062,9 @@ window.addEventListener("resize", () => {
 renderPublic();
 showView("view-public");
 let bootDone = false;
-fbauth.onAuthStateChanged(async (user) => {
+if (typeof deliPreviewEnabled === "function" && deliPreviewEnabled()) {
+  deliBootPreview();
+} else fbauth.onAuthStateChanged(async (user) => {
   if (bootDone) return;
   if (!user) {
     fbauth.signInAnonymously().catch((err) => {
