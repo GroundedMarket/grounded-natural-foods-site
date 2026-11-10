@@ -923,13 +923,10 @@ function seedAvailability(row) {
           have: have,
         });
       }
-      var availability = availabilityOf(item);
       updates.push({
         id: id,
         lbsOnHand: next,
-        inStock: effectiveInStock(availability, next, limit),
-        availability: availability,
-        discontinued: availability === "discontinued",
+        inStock: effectiveInStock(availabilityOf(item), next, limit),
       });
     });
     return { updates: updates, short: short };

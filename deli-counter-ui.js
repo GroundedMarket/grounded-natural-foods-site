@@ -1102,36 +1102,72 @@ function deliSetStatus(id, next) {
   if (next !== "new" && next !== "ready" && next !== "pickedUp") return;
   var patch = { deliStatus: next, status: next === "pickedUp" ? "completed" : "incomplete" };
   var itemWrites = [];
+  var previousItems = [];
+  var planWasShort = false;
   if (next === "pickedUp" && !order.stockDecremented) {
     var plan = DeliCounter.planPickupDecrement(db.meatCheeseItems || [], order, deliThreshold());
+    planWasShort = plan.short.length > 0;
     plan.updates.forEach(function (update) {
       var item = deliFind(update.id);
       if (!item) return;
-      itemWrites.push(Object.assign({}, item, {
+      previousItems.push({ id: item.id, lbsOnHand: item.lbsOnHand, inStock: item.inStock });
+      itemWrites.push({
+        id: update.id,
         lbsOnHand: update.lbsOnHand,
         inStock: update.inStock,
-        availability: update.availability,
-        discontinued: update.discontinued,
-      }));
+      });
     });
     patch.stockDecremented = true;
-    if (plan.short.length) {
-      alert("Marked picked up. At least one item didn't have enough on hand, so its count was set to 0. Adjust the catalog if the scale says otherwise.");
-    }
   }
+  var previousOrder = {
+    deliStatus: order.deliStatus,
+    status: order.status,
+    stockDecremented: !!order.stockDecremented,
+  };
   order.deliStatus = next;
   order.status = patch.status;
   if (patch.stockDecremented) order.stockDecremented = true;
+  var itemsSaved = false;
   var itemsDone = itemWrites.length ? deliPersistItems(itemWrites) : Promise.resolve();
   var orderDone = window.__deliPreview
     ? Promise.resolve()
     : fsdb.collection("orders").doc(id).update(patch);
-  itemsDone.then(function () { return orderDone; }).then(function () {
+  itemsDone.then(function () {
+    itemsSaved = true;
+    return orderDone;
+  }).then(function () {
+    if (itemWrites.length && planWasShort) {
+      alert("Marked picked up. At least one item didn't have enough on hand, so its count was set to 0. Adjust the catalog if the scale says otherwise.");
+    }
     deliOpenStaffOrder(order);
     if (typeof renderPortalBody === "function") renderPortalBody();
   }).catch(function (err) {
     console.error("Update deli order failed:", err);
-    alert("Couldn't update that order.");
+    var denied = err && (err.code === "permission-denied" || /permission-denied/i.test(String(err.message || err)));
+    order.deliStatus = previousOrder.deliStatus;
+    order.status = previousOrder.status;
+    order.stockDecremented = previousOrder.stockDecremented;
+    if (!itemsSaved) {
+      previousItems.forEach(function (prev) {
+        var item = deliFind(prev.id);
+        if (!item) return;
+        item.lbsOnHand = prev.lbsOnHand;
+        item.inStock = prev.inStock;
+      });
+      alert(denied
+        ? "Couldn't mark this picked up. The pounds didn't come off the online menu, so nothing was saved. Try again, or ask a manager if it keeps happening."
+        : "Couldn't update that order. Nothing was saved.");
+    } else if (itemWrites.length) {
+      alert(denied
+        ? "The pounds came off the online menu, but the order was not marked Picked Up. Refresh Orders before trying again so the pounds are not taken off twice."
+        : "The pounds came off the online menu, but the order status didn't save. Refresh Orders before trying again.");
+    } else {
+      alert(denied
+        ? "Couldn't update that order. The portal isn't allowed to save this change."
+        : "Couldn't update that order.");
+    }
+    deliOpenStaffOrder(order);
+    if (typeof renderPortalBody === "function") renderPortalBody();
   });
 }
 

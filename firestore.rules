@@ -115,6 +115,17 @@ service cloud.firestore {
       // Case pieces still roll their shelf weight up to this one field.
       allow update: if isStaff()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['availableWeight']);
+      // Pickup decrement. Any staff member marking an order Picked Up may
+      // only lower pounds on an existing counter item. availability and
+      // discontinued stay put; inStock is recomputed from them.
+      // availableWeight may be in the same write when the case rollup
+      // changes too. Stock cannot go up through this rule.
+      allow update: if isStaff()
+        && counterShape(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lbsOnHand', 'inStock', 'availableWeight'])
+        && request.resource.data.lbsOnHand <= resource.data.lbsOnHand
+        && request.resource.data.availability == resource.data.availability
+        && request.resource.data.discontinued == resource.data.discontinued;
       // Online catalog: name, group, price, pounds, icon, hide / discontinue.
       // Management and master. A hand-added item has an empty Toast id.
       // An import keeps the Toast id as the document id.
