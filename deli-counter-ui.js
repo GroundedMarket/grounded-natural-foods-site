@@ -70,11 +70,40 @@ function deliWatchLoad() {
   }, 12000);
 }
 
-function deliPriceLabel(item) {
+function deliPriceAmount(item) {
   var price = item.pricePerLb != null && item.pricePerLb !== "" ? item.pricePerLb : item.price;
-  if (price == null || price === "") return "In stock";
+  if (price == null || price === "") return "";
   var amount = typeof price === "number" ? price.toFixed(2) : String(price).replace(/^\$/, "");
-  return "$" + amount + "/lb · In stock";
+  if (!amount) return "";
+  return "$" + amount + "/lb";
+}
+
+function deliPriceLabel(item) {
+  var amount = deliPriceAmount(item);
+  return amount ? amount + " · In stock" : "In stock";
+}
+
+function deliCaseCardHTML(item) {
+  var open = item.catalog === "counter"
+    ? "deliOpenItem('" + item.id + "')"
+    : "openMeatCheeseOrderModal('" + item.id + "')";
+  var name = item.displayName || item.name;
+  var price = deliPriceAmount(item);
+  var icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
+  return '<button type="button" class="deli-case-card mc-cat-' + item.category + '" onclick="' + open + '" aria-label="' +
+    escHtmlAttr(name + (price ? ", " + price : "") + ". Opens the order dialog.") + '">' +
+    (icon || '<span class="mc-tile-emoji">' + escHtml(item.emoji || (item.category === "meat" ? "🥩" : "🧀")) + "</span>") +
+    '<span class="deli-case-name">' + escHtml(name) + "</span>" +
+    (price ? '<span class="deli-case-price">' + escHtml(price) + "</span>" : "") +
+    "</button>";
+}
+
+function deliShelfHTML(label, items) {
+  if (!items.length) return "";
+  var id = "deli-shelf-" + String(label).toLowerCase().replace(/[^a-z]+/g, "");
+  return '<section class="deli-shelf" aria-labelledby="' + id + '"><h3 class="deli-shelf-label" id="' + id + '">' +
+    escHtml(label) + '</h3><div class="deli-shelf-row">' + items.map(deliCaseCardHTML).join("") +
+    '</div><div class="deli-shelf-edge" aria-hidden="true"></div></section>';
 }
 
 function deliTileHTML(item) {
@@ -118,23 +147,23 @@ function deliRenderSlip() {
 function deliRenderPublicLists() {
   var phase = deliPublicPhase();
   if (phase === "loading") deliWatchLoad();
-  ["meats", "cheeses"].forEach(function (plural) {
-    var el = document.getElementById("mc-public-" + plural);
-    if (!el) return;
-    if (phase === "loading") {
-      el.innerHTML = marketLoadingHTML("Loading Meats & Cheese");
-      return;
-    }
-    if (phase === "error") {
-      el.innerHTML = marketErrorHTML("Couldn't load meats and cheese. Check your connection and refresh.");
-      return;
-    }
-    var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true, settings: deliRuntimeSettings() });
-    var html = plural === "meats"
-      ? grouped.meats.map(function (group) { return deliGroupBlockHTML(group.label, group.items); }).join("")
-      : grouped.cheeses.map(deliTileHTML).join("");
-    el.innerHTML = html || '<p class="empty-note">Nothing available right now.</p>';
-  });
+  var el = document.getElementById("mc-public-case");
+  if (!el) return;
+  if (phase === "loading") {
+    el.innerHTML = marketLoadingHTML("Loading Meats & Cheese");
+    deliRenderSlip();
+    return;
+  }
+  if (phase === "error") {
+    el.innerHTML = marketErrorHTML("Couldn't load meats and cheese. Check your connection and refresh.");
+    deliRenderSlip();
+    return;
+  }
+  var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true, settings: deliRuntimeSettings() });
+  var html = grouped.meats.map(function (group) {
+    return deliShelfHTML(group.label, group.items);
+  }).join("") + deliShelfHTML("Cheeses", grouped.cheeses);
+  el.innerHTML = html || '<p class="empty-note">Nothing available right now.</p>';
   deliRenderSlip();
 }
 
