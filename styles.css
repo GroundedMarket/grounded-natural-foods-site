@@ -663,7 +663,7 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
   inset:0;
   border-radius:inherit;
   background:linear-gradient(118deg, color-mix(in srgb, var(--paper) 70%, transparent) 0%, color-mix(in srgb, var(--paper) 28%, transparent) 15%, transparent 28%, transparent 60%, color-mix(in srgb, var(--paper) 32%, transparent) 76%, transparent 90%);
-  z-index:3;
+  z-index:0;
 }
 .deli-shelf{ position:relative; z-index:1; margin-bottom:8px; }
 .deli-shelf-label{
