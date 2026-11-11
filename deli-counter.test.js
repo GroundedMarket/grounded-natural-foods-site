@@ -63,6 +63,28 @@ test("public list is the owner's 19 meats and 11 cheeses, grouped and alphabetiz
   );
 });
 
+test("the staff case follows the catalog and keeps hidden items", () => {
+  const items = [
+    { id: "c1", catalog: "counter", category: "meat", meatType: "chicken", displayName: "Buffalo", lbsOnHand: 2, inStock: true, availability: "auto" },
+    { id: "c2", catalog: "counter", category: "meat", meatType: "chicken", displayName: "Chipotle", lbsOnHand: 1, inStock: true, hiddenOnline: true, availability: "auto" },
+    { id: "c3", catalog: "counter", category: "meat", meatType: "turkey", displayName: "Ovengold", lbsOnHand: 0, inStock: false, availability: "auto" },
+    { id: "c4", catalog: "counter", category: "cheese", displayName: "Provolone", lbsOnHand: 3, inStock: true, availability: "auto" },
+    { id: "c5", catalog: "counter", category: "cheese", displayName: "Smoked Gouda", lbsOnHand: 4, discontinued: true, availability: "discontinued" },
+    { id: "c6", catalog: "counter", category: "cheese", displayName: "Gone", lbsOnHand: 2, removed: true, availability: "auto" },
+    { id: "c7", catalog: "counter", category: "meat", meatType: "beef", displayName: "Roast Beef", lbsOnHand: 0.1, inStock: false, availability: "auto" },
+  ];
+  const shown = DC.staffCaseGroups(items, { showOutOfStock: false });
+  assert.deepEqual(shown.meats.map((group) => group.label), ["Chicken", "Beef"]);
+  assert.deepEqual(shown.meats[0].items.map((item) => item.displayName), ["Buffalo", "Chipotle"]);
+  assert.equal(shown.meats[0].items[1].hiddenOnline, true);
+  assert.deepEqual(shown.cheeses.map((item) => item.displayName), ["Provolone"]);
+  const withOut = DC.staffCaseGroups(items, { showOutOfStock: true });
+  const outNames = withOut.meats.flatMap((group) => group.items.map((item) => item.displayName));
+  assert.ok(outNames.includes("Ovengold"));
+  assert.equal(withOut.cheeses.some((item) => item.displayName === "Smoked Gouda"), false);
+  assert.equal(withOut.cheeses.some((item) => item.displayName === "Gone"), false);
+});
+
 test("negative Toast quantities are stored as 0 lb and out of stock", () => {
   const items = catalog();
   ["Chipped Meat", "Turkey Cracked Pepper", "Muenster"].forEach((name) => {

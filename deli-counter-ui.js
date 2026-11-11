@@ -549,9 +549,11 @@ function deliSubmitOrder() {
 function deliCounterToolbarHTML() {
   var hasCounter = (db.meatCheeseItems || []).some(function (item) { return item.catalog === "counter"; });
   var canEdit = typeof canManageOnlineDeli === "function" ? canManageOnlineDeli() : !!(session && session.isMaster);
-  return '<div class="mc-counter-tools"><p class="mc-case-note">Tap a filled tile to weigh the pieces, or to take that item off the customer website. Manage online deli is the full list. Import does not rearrange these slots.</p>' +
+  var showingOut = typeof mcShowOutOfStock !== "undefined" && mcShowOutOfStock;
+  return '<div class="mc-counter-tools"><p class="mc-case-note">The case follows the catalog. In-stock meats and cheeses show up on their own. Hidden items stay here, marked Hidden online, so you can put them back. Import Toast CSV only updates prices and stock.</p>' +
     '<div class="mc-counter-actions">' +
     '<button type="button" class="btn" onclick="deliManageOnline()">Manage online deli</button>' +
+    '<button type="button" class="btn small' + (showingOut ? "" : " outline") + '" onclick="mcToggleOutOfStock()" aria-pressed="' + (showingOut ? "true" : "false") + '">' + (showingOut ? "Showing out of stock" : "Show out of stock") + "</button>" +
     (canEdit ? '<button type="button" class="btn small outline" onclick="deliPickCsv()">Import Toast CSV</button>' +
       (hasCounter ? "" : '<button type="button" class="btn small outline" onclick="deliLoadStarter()">Load starter stock</button>') : "") +
     '<input type="file" id="deli-csv-input" accept=".csv,text/csv" hidden></div></div>';
@@ -1319,6 +1321,9 @@ function deliSetStatus(id, next) {
 function deliBootPreview() {
   window.__deliPreview = true;
   db.meatCheeseItems = DeliCounter.starterCatalog(0.25);
+  // Local preview only, so the staff case shows a muted Hidden online tile.
+  var buffalo = db.meatCheeseItems.filter(function (item) { return item.displayName === "Buffalo"; })[0];
+  if (buffalo) buffalo.hiddenOnline = true;
   db.meatCheeseSlots = [
     { id: "slot-teri", category: "meat", itemId: "preview-teri", order: 0 },
     { id: "slot-chip", category: "meat", itemId: "preview-chip", order: 1 },

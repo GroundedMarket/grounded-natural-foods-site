@@ -1,9 +1,10 @@
 /* Deli counter stock and pickup orders.
-   The physical case (meatCheeseSlots / meatCheeseBlocks) stays the shelf
-   layout. This module is the catalog side: Toast or any later POS feeds
-   normalized rows in, staff display names and meat types survive a
-   re-import, and the public list groups meats independently of slot order.
-   No live Toast API calls live here — registerPosAdapter() is the seam. */
+   The staff case and the public case both follow this catalog. Saved
+   meatCheeseSlots are left in place but no longer decide what is on the
+   shelf. Toast or any later POS feeds normalized rows in, staff display
+   names and meat types survive a re-import, and meats group the same way
+   on both cases. No live Toast API calls live here — registerPosAdapter()
+   is the seam. */
 var DeliCounter = (function () {
   var DEFAULT_THRESHOLD = 0.25;
   var MEAT_TYPES = ["chicken", "turkey", "ham", "beef", "other"];
@@ -345,6 +346,30 @@ function stockMessage(onHand, requested) {
     });
     cheeses.sort(byDisplayName);
     return { meats: meats, cheeses: cheeses };
+  }
+
+  /* Staff shelf. Discontinued and removed items stay in Manage online deli.
+     Hidden items with pounds still appear. Out of stock stays off unless
+     the case toggle asks for it. Slots are not consulted. */
+  function staffHasPounds(item) {
+    var lbs = Number(item && item.lbsOnHand);
+    if (isFinite(lbs) && lbs > 0) return true;
+    if (item && item.inStock === true) return true;
+    if (item && !isCounterItem(item) && (Number(item.availableWeight) || 0) > 0) return true;
+    return false;
+  }
+
+  function staffCaseGroups(items, options) {
+    var showOut = !!(options && options.showOutOfStock);
+    var visible = (items || []).filter(function (item) {
+      if (!item || item.removed) return false;
+      if (item.category !== "meat" && item.category !== "cheese") return false;
+      var availability = availabilityOf(item);
+      if (availability === "discontinued" || item.discontinued) return false;
+      if (showOut) return true;
+      return staffHasPounds(item);
+    });
+    return groupCatalog(visible, 0, { publicOnly: false });
   }
 
   function parseCsv(text) {
@@ -1051,6 +1076,7 @@ function seedAvailability(row) {
     stockMessage: stockMessage,
     defaultOrderWeight: defaultOrderWeight,
     groupCatalog: groupCatalog,
+    staffCaseGroups: staffCaseGroups,
     parseToastExportCsv: parseToastExportCsv,
     registerPosAdapter: registerPosAdapter,
     getPosAdapter: getPosAdapter,
