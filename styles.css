@@ -720,10 +720,11 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 .deli-case-card:nth-child(3n+2){ --tilt:0.6deg; }
 .deli-case-card:nth-child(3n){ --tilt:-0.3deg; }
 .deli-case-card.has-photo{ padding:8px 6px 12px; gap:4px; background:var(--cream); }
-.deli-case-card .deli-photo{ width:100%; aspect-ratio:4/5; overflow:visible; background:transparent; }
-.deli-case-card .deli-photo img{ width:100%; height:100%; object-fit:contain; object-position:center bottom; display:block; filter:drop-shadow(0 8px 6px rgba(44,36,23,0.2)); }
+.deli-case-card .deli-photo{ position:relative; width:100%; aspect-ratio:1/1; flex:0 0 auto; overflow:hidden; background:transparent; }
+.deli-case-card .deli-photo img{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; object-position:center bottom; display:block; filter:drop-shadow(0 8px 6px rgba(44,36,23,0.2)); }
 .deli-case-card.has-photo .deli-case-name,
 .deli-case-card.has-photo .deli-case-price{ padding:0 4px; }
+.deli-case-card.has-photo .deli-case-name{ min-height:2.5em; }
 .mc-tile.has-photo{ padding:4px 3px 6px; justify-content:flex-end; gap:1px; }
 .mc-tile.has-photo .deli-photo{ position:relative; top:auto; left:auto; right:auto; width:100%; height:68%; flex:1 1 auto; overflow:visible; background:transparent; }
 .mc-tile.has-photo .deli-photo img{ width:100%; height:100%; object-fit:contain; object-position:center bottom; display:block; filter:drop-shadow(0 3px 2px rgba(44,36,23,0.28)); }

@@ -471,8 +471,8 @@ test("re-import keeps an icon and the hide flags", () => {
 
 test("a Boar's Head photo follows the Toast name, and a saved URL replaces it", () => {
   const Photos = require("./deli-photos.js");
-  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=2$/);
-  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=2$/);
+  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=3$/);
+  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=3$/);
   assert.match(Photos.photoFor({ toastName: "Blck Wax Cheddar" }), /^$/);
   assert.equal(Photos.photoFor({ toastName: "Chipped Meat" }), "");
   assert.equal(
