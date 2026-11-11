@@ -7192,15 +7192,9 @@ function clearSoupDay(dateISO) {
                            can ever see (see firestore.rules) — it's kept
                            in sync by recalcMeatCheeseAvailableWeight()
                            every time a block changes.
-     - meatCheeseSlots  : a flat, ordered, per-category list of which
-                           catalog item sits in which visual case
-                           position. No gaps, always append-only — a new
-                           item is assigned at the end, and dragging a
-                           slot just moves it within this same list
-                           (reorderMeatCheeseSlot). The grid always shows
-                           at least 2 full rows of slots, and a whole new
-                           empty row appears the moment an existing row
-                           fills (see mcGridSlotCount).
+     - meatCheeseSlots  : an older manual layout. The staff case no
+                           longer reads it. The documents stay in
+                           Firestore so nothing already saved is deleted.
      - meatCheeseBlocks : the actual physical pieces (weight, sell-by
                            date, location "case"|"freezer") — staff-only,
                            never exposed to customers.
@@ -7269,26 +7263,62 @@ function mcFmtDate(iso) {
   return fmtShort(new Date(iso + "T00:00"));
 }
 
+let mcShowOutOfStock = false;
+function mcToggleOutOfStock() {
+  mcShowOutOfStock = !mcShowOutOfStock;
+  renderPortalBody();
+}
 function meatCheeseHTML() {
   if (typeof deliMaybeSeed === "function") deliMaybeSeed();
   return `<h2 class="section-title">Meats &amp; Cheese</h2>
     ${typeof deliCounterToolbarHTML === "function" ? deliCounterToolbarHTML() : ""}
-    <p style="font-size:12.5px;color:var(--ink-soft);margin:6px 0 16px">Tap an empty slot to stock a new item. Tap a filled slot to weigh its pieces, or to hide it from the customer site. Drag a filled slot to reorder the case.</p>
     ${mcCaseHTML("meat")}
     ${mcCaseHTML("cheese")}
     ${mcFreezerHTML()}`;
 }
 
 /* ---------------- deli case grid ---------------- */
+function mcStaffGroups() {
+  if (typeof DeliCounter !== "undefined" && DeliCounter.staffCaseGroups) {
+    return DeliCounter.staffCaseGroups(db.meatCheeseItems || [], {
+      showOutOfStock: mcShowOutOfStock,
+    });
+  }
+  return { meats: [], cheeses: [] };
+}
+function mcStaffPounds(item) {
+  if (!item) return 0;
+  if (item.catalog === "counter" || item.lbsOnHand != null) return Number(item.lbsOnHand) || 0;
+  return Number(item.availableWeight) || 0;
+}
+function mcCaseEmptyNote(cat) {
+  if (mcShowOutOfStock) {
+    return `No ${cat === "meat" ? "meats" : "cheeses"} left besides discontinued items. Manage online deli still has the full list.`;
+  }
+  return `Nothing in stock here. Show out of stock, or open Manage online deli for the full list.`;
+}
 function mcCaseHTML(cat) {
-  const slots = mcSlotsFor(cat);
-  const total = mcGridSlotCount(slots.length);
-  let tiles = "";
-  for (let i = 0; i < total; i++) {
-    tiles +=
-      i < slots.length
-        ? mcSlotTileHTML(cat, slots[i])
-        : mcEmptySlotTileHTML(cat, i === slots.length);
+  const grouped = mcStaffGroups();
+  let body = "";
+  if (cat === "meat") {
+    body = grouped.meats.length
+      ? grouped.meats
+          .map(
+            (group) => `<div class="mc-freezer-group">
+          <h4>${escHtml(group.label)}</h4>
+          <div class="mc-grid" style="--mc-cols:${MC_SLOTS_PER_ROW}">${group.items
+            .map((item) => mcCatalogTileHTML(item))
+            .join("")}</div>
+        </div>`
+          )
+          .join("")
+      : `<p class="empty-note">${mcCaseEmptyNote(cat)}</p>`;
+  } else {
+    body = grouped.cheeses.length
+      ? `<div class="mc-grid" style="--mc-cols:${MC_SLOTS_PER_ROW}">${grouped.cheeses
+          .map((item) => mcCatalogTileHTML(item))
+          .join("")}</div>`
+      : `<p class="empty-note">${mcCaseEmptyNote(cat)}</p>`;
   }
   return `<div class="mc-case">
     <div class="mc-case-head">
@@ -7299,31 +7329,29 @@ function mcCaseHTML(cat) {
           : ""
       }
     </div>
-    <div class="mc-grid" style="--mc-cols:${MC_SLOTS_PER_ROW}">${tiles}</div>
+    ${body}
   </div>`;
 }
-function mcSlotTileHTML(cat, slot) {
-  const item = mcItem(slot.itemId);
-  if (!item) return mcEmptySlotTileHTML(cat, false);
-  const weight = mcCaseBlocksFor(item.id).reduce(
-    (s, b) => s + (b.weightCurrent || 0),
-    0
-  );
-  return `<button type="button" class="mc-tile mc-tile-filled mc-cat-${cat}" data-slot-id="${
-    slot.id
-  }" data-cat="${cat}"
-      onpointerdown="mcTilePointerDown(event,'${cat}','${slot.id}','${item.id}')"
-      onclick="mcTileClick(event,'${cat}','${item.id}')">
-    <span class="mc-tile-emoji">${escHtml(
-      item.emoji || (cat === "meat" ? "🥩" : "🧀")
-    )}</span>
+function mcCatalogTileHTML(item) {
+  const cat = item.category === "cheese" ? "cheese" : "meat";
+  const hidden = !!item.hiddenOnline;
+  const pounds = mcStaffPounds(item);
+  const out = !(pounds > 0) && item.inStock !== true;
+  let label = "";
+  if (hidden) label = "Hidden online";
+  else if (out) label = "Out of stock";
+  else if (item.catalog === "counter" && typeof deliOnlineLabel === "function") label = deliOnlineLabel(item);
+  const icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
+  const mark = icon
+    ? `<span class="mc-tile-mark">${icon}</span>`
+    : `<span class="mc-tile-emoji">${escHtml(item.emoji || (cat === "meat" ? "🥩" : "🧀"))}</span>`;
+  return `<button type="button" class="mc-tile mc-tile-filled mc-cat-${cat}${
+    hidden ? " mc-tile-hidden" : ""
+  }${out && !hidden ? " mc-tile-out" : ""}" onclick="mcTileClick(event,'${cat}','${item.id}')">
+    ${mark}
     <span class="mc-tile-name">${escHtml(item.displayName || item.name)}</span>
-    <span class="mc-tile-weight">${mcFmtLbs(weight)} lb</span>
-    ${
-      item.catalog === "counter" && typeof deliOnlineLabel === "function"
-        ? `<span class="mc-tile-online">${escHtml(deliOnlineLabel(item))}</span>`
-        : ""
-    }
+    <span class="mc-tile-weight">${mcFmtLbs(pounds)} lb</span>
+    ${label ? `<span class="mc-tile-online">${escHtml(label)}</span>` : ""}
   </button>`;
 }
 function mcEmptySlotTileHTML(cat, isNext) {

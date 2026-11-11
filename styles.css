@@ -588,8 +588,13 @@ body.modal-open{ overflow:hidden; }
 
 .mc-grid{ display:grid; grid-template-columns:repeat(var(--mc-cols,6), 1fr); gap:8px; margin-bottom:8px; }
 .mc-tile{ position:relative; aspect-ratio:1/1; border-radius:8px; border:1.5px solid var(--line); background:var(--paper);
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:14px 4px 6px; cursor:pointer;
-  font-family:var(--font-mono); touch-action:none; -webkit-user-select:none; user-select:none; }
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:18px 4px 6px; cursor:pointer;
+  font-family:var(--font-mono); touch-action:manipulation; -webkit-user-select:none; user-select:none; color:var(--ink); -webkit-text-fill-color:currentcolor; appearance:none; -webkit-appearance:none; }
+.mc-tile-mark{ position:absolute; top:3px; left:4px; line-height:0; }
+.mc-tile-mark .mc-deli-icon{ width:18px; height:18px; }
+.mc-tile-hidden{ opacity:.55; }
+.mc-tile-hidden .mc-tile-online{ color:var(--ink-soft); }
+.mc-tile-out{ opacity:.72; border-style:dashed; }
 .mc-tile-empty{ border-style:dashed; background:transparent; color:var(--ink-soft); font-size:22px; touch-action:auto; padding:6px; }
 .mc-tile-empty[disabled]{ opacity:.55; cursor:default; }
 .mc-tile-filled.mc-cat-meat{ background:linear-gradient(160deg,#f6d9cf,#ecbba9); }
