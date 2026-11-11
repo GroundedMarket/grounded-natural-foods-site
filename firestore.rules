@@ -105,6 +105,7 @@ service cloud.firestore {
         && data.meatTypeEdited is bool
         && (data.category == 'cheese' || data.meatType in ['chicken', 'turkey', 'ham', 'beef', 'other'])
         && (!data.keys().hasAny(['iconKey']) || (data.iconKey is string && data.iconKey.size() <= 40))
+        && (!data.keys().hasAny(['photoUrl']) || (data.photoUrl is string && data.photoUrl.size() <= 400))
         && (!data.keys().hasAny(['hiddenOnline']) || data.hiddenOnline is bool)
         && (!data.keys().hasAny(['notOfferedOnline']) || data.notOfferedOnline is bool)
         && (!data.keys().hasAny(['removed']) || data.removed is bool);
@@ -136,7 +137,7 @@ service cloud.firestore {
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
           'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
-          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed'
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl'
         ]);
       allow create: if canEditOnlineDeli()
         && counterShape(request.resource.data)
@@ -149,7 +150,7 @@ service cloud.firestore {
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
           'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
-          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed'
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl'
         ]);
     }
     // meatCheeseSlots is just which catalog item sits in which visual case

@@ -701,6 +701,7 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
   text-align:center;
   gap:4px;
   padding:10px 8px 12px;
+  overflow:hidden;
   background:var(--cream);
   border:1px solid var(--line);
   border-radius:3px;
@@ -718,6 +719,17 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 .deli-case-card:nth-child(3n+1){ --tilt:-0.8deg; }
 .deli-case-card:nth-child(3n+2){ --tilt:0.6deg; }
 .deli-case-card:nth-child(3n){ --tilt:-0.3deg; }
+.deli-case-card.has-photo{ padding:0 0 12px; gap:6px; }
+.deli-case-card .deli-photo{ width:100%; aspect-ratio:5/4; overflow:hidden; background:#241910; }
+.deli-case-card .deli-photo img{ width:100%; height:100%; object-fit:cover; object-position:center 42%; display:block; }
+.deli-case-card.has-photo .deli-case-name,
+.deli-case-card.has-photo .deli-case-price{ padding:0 8px; }
+.mc-tile.has-photo{ padding:0 4px 6px; justify-content:flex-end; gap:1px; }
+.mc-tile.has-photo .deli-photo{ position:absolute; top:0; left:0; right:0; height:58%; overflow:hidden; }
+.mc-tile.has-photo .deli-photo img{ width:100%; height:100%; object-fit:cover; object-position:center 40%; display:block; }
+.mc-tile.has-photo .mc-tile-name,
+.mc-tile.has-photo .mc-tile-weight,
+.mc-tile.has-photo .mc-tile-online{ position:relative; z-index:1; }
 .deli-case-card .mc-deli-icon{ width:56px; height:56px; }
 .deli-case-name{
   font-family:var(--font-display);

@@ -7341,12 +7341,13 @@ function mcCatalogTileHTML(item) {
   if (hidden) label = "Hidden online";
   else if (out) label = "Out of stock";
   else if (item.catalog === "counter" && typeof deliOnlineLabel === "function") label = deliOnlineLabel(item);
-  const icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
-  const mark = icon
-    ? `<span class="mc-tile-mark">${icon}</span>`
+  const mark = typeof deliItemMarkHTML === "function"
+    ? deliItemMarkHTML(item)
     : `<span class="mc-tile-emoji">${escHtml(item.emoji || (cat === "meat" ? "🥩" : "🧀"))}</span>`;
+  const hasPhoto = mark.indexOf("deli-photo") !== -1;
   return `<button type="button" class="mc-tile mc-tile-filled mc-cat-${cat}${
-    hidden ? " mc-tile-hidden" : ""
+    hasPhoto ? " has-photo" : ""
+  }${hidden ? " mc-tile-hidden" : ""
   }${out && !hidden ? " mc-tile-out" : ""}" onclick="mcTileClick(event,'${cat}','${item.id}')">
     ${mark}
     <span class="mc-tile-name">${escHtml(item.displayName || item.name)}</span>
