@@ -86,16 +86,25 @@ function deliPriceLabel(item) {
   return amount ? amount + " · In stock" : "In stock";
 }
 
+function deliItemMarkHTML(item) {
+  var src = typeof DeliPhotos !== "undefined" && DeliPhotos.photoFor ? DeliPhotos.photoFor(item) : "";
+  if (src) return '<span class="deli-photo"><img src="' + escHtmlAttr(src) + '" alt=""></span>';
+  var icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
+  if (icon) return icon;
+  return '<span class="mc-tile-emoji">' + escHtml((item && item.emoji) || (item && item.category === "cheese" ? "🧀" : "🥩")) + "</span>";
+}
+
 function deliCaseCardHTML(item) {
   var open = item.catalog === "counter"
     ? "deliOpenItem('" + item.id + "')"
     : "openMeatCheeseOrderModal('" + item.id + "')";
   var name = item.displayName || item.name;
   var price = deliPriceAmount(item);
-  var icon = typeof DeliIcons !== "undefined" ? DeliIcons.iconFor(item) : "";
-  return '<button type="button" class="deli-case-card mc-cat-' + item.category + '" onclick="' + open + '" aria-label="' +
+  var mark = deliItemMarkHTML(item);
+  var photoClass = mark.indexOf("deli-photo") === -1 ? "" : " has-photo";
+  return '<button type="button" class="deli-case-card mc-cat-' + item.category + photoClass + '" onclick="' + open + '" aria-label="' +
     escHtmlAttr(name + (price ? ", " + price : "") + ". Opens the order dialog.") + '">' +
-    (icon || '<span class="mc-tile-emoji">' + escHtml(item.emoji || (item.category === "meat" ? "🥩" : "🧀")) + "</span>") +
+    mark +
     '<span class="deli-case-name">' + escHtml(name) + "</span>" +
     (price ? '<span class="deli-case-price">' + escHtml(price) + "</span>" : "") +
     "</button>";
@@ -889,6 +898,8 @@ function deliEditItem(id, newCategory) {
     (item && item.lbsOnHand != null ? item.lbsOnHand : 0) + '"></div>' +
     '<div class="field"><label>Toast name (optional, for imports)</label><input id="deli-edit-toast" type="text" value="' + escHtmlAttr(item ? item.toastName || "" : "") + '"></div>' +
     '<div class="field"><label>SKU (optional)</label><input id="deli-edit-sku" type="text" value="' + escHtmlAttr(item ? item.sku || "" : "") + '"></div>' +
+    '<div class="field"><label>Photo</label><input id="deli-edit-photo" type="text" value="' + escHtmlAttr(item && item.photoUrl ? item.photoUrl : "") + '" placeholder="Leave blank for the Boar\'s Head photo">' +
+    '<p class="mc-public-intro">Blank uses the matched product photo. Paste an https address to override it.</p></div>' +
     '<div class="field"><label>Stock</label><select id="deli-edit-availability">' +
     '<option value="auto"' + (availability === "auto" ? " selected" : "") + ">Follow the out-of-stock threshold</option>" +
     '<option value="in"' + (availability === "in" ? " selected" : "") + ">Force in stock while any weight remains</option>" +
@@ -944,6 +955,7 @@ function deliCounterRecord(base, patch) {
     meatType: item.category === "cheese" ? "" : item.meatType || "other",
     meatTypeEdited: item.category === "cheese" ? false : !!item.meatTypeEdited,
     iconKey: item.iconKey || "",
+    photoUrl: item.photoUrl || "",
     hiddenOnline: !!item.hiddenOnline,
     notOfferedOnline: !!item.notOfferedOnline,
     removed: !!item.removed,
@@ -964,6 +976,11 @@ function deliSaveEdited(id, category) {
     return;
   }
   deliEditMessage("");
+  var photoUrl = document.getElementById("deli-edit-photo").value.trim();
+  if (photoUrl && !/^https:\/\/\S{1,380}$/.test(photoUrl)) {
+    deliEditMessage("A photo override has to be an https address, or leave it blank.");
+    return;
+  }
   var availability = document.getElementById("deli-edit-availability").value;
   if (["auto", "in", "out"].indexOf(availability) === -1) return;
   if (existing && DeliCounter.availabilityOf(existing) === "discontinued") availability = "discontinued";
@@ -982,6 +999,7 @@ function deliSaveEdited(id, category) {
     toastName: document.getElementById("deli-edit-toast").value.trim(),
     sku: document.getElementById("deli-edit-sku").value.trim(),
     iconKey: document.getElementById("deli-edit-icon").value,
+    photoUrl: document.getElementById("deli-edit-photo").value.trim(),
     hiddenOnline: document.getElementById("deli-edit-hidden").checked,
     notOfferedOnline: document.getElementById("deli-edit-offline").checked || DeliCounter.isChippedMeat({
       sku: document.getElementById("deli-edit-sku").value.trim(),

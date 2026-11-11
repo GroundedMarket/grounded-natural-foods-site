@@ -443,6 +443,7 @@ test("re-import keeps an icon and the hide flags", () => {
   const buffalo = catalog().find((item) => item.displayName === "Buffalo");
   const edited = Object.assign({}, buffalo, {
     iconKey: "wing",
+    photoUrl: "https://example.com/buffalo.jpg",
     hiddenOnline: true,
     notOfferedOnline: false,
     removed: false,
@@ -457,6 +458,7 @@ test("re-import keeps an icon and the hide flags", () => {
     pricePerLb: buffalo.pricePerLb,
   }], { threshold: 0.25 })[0];
   assert.equal(next.item.iconKey, "wing");
+  assert.equal(next.item.photoUrl, "https://example.com/buffalo.jpg");
   assert.equal(next.item.hiddenOnline, true);
   assert.equal(next.item.removed, false);
   assert.equal(DC.isOrderable(next.item, 0.25), false);
@@ -465,6 +467,18 @@ test("re-import keeps an icon and the hide flags", () => {
   const forced = Icons.iconFor({ displayName: "Buffalo", iconKey: "flame", category: "meat", meatType: "chicken" });
   assert.notEqual(forced, Icons.iconFor({ displayName: "Buffalo", category: "meat", meatType: "chicken" }));
   assert.equal(Icons.choices().some((choice) => choice.key === "wing"), true);
+});
+
+test("a Boar's Head photo follows the Toast name, and a saved URL replaces it", () => {
+  const Photos = require("./deli-photos.js");
+  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp$/);
+  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp$/);
+  assert.match(Photos.photoFor({ toastName: "Blck Wax Cheddar" }), /^$/);
+  assert.equal(Photos.photoFor({ toastName: "Chipped Meat" }), "");
+  assert.equal(
+    Photos.photoFor({ toastName: "Turkey Ovengold", photoUrl: "https://example.com/slice.jpg" }),
+    "https://example.com/slice.jpg"
+  );
 });
 
 test("each starter item has its own drawn icon, with a type fallback", () => {
