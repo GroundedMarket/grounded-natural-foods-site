@@ -523,11 +523,11 @@ test("re-import keeps an icon and the hide flags", () => {
 
 test("a Boar's Head photo follows the Toast name, and a saved URL replaces it", () => {
   const Photos = require("./deli-photos.js");
-  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=7$/);
-  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=7$/);
-  assert.match(Photos.photoFor({ toastName: "Ham Spiral Sliced" }), /assets\/deli-photos\/spiral-ham\.webp\?v=7$/);
-  assert.match(Photos.photoFor({ toastName: "Classic Rst Turkey Breast" }), /classic-roast-turkey\.webp\?v=7$/);
-  assert.match(Photos.photoFor({ toastName: "Classic Roast Turkey Brst" }), /classic-roast-turkey\.webp\?v=7$/);
+  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=8$/);
+  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=8$/);
+  assert.match(Photos.photoFor({ toastName: "Ham Spiral Sliced" }), /assets\/deli-photos\/spiral-ham\.webp\?v=8$/);
+  assert.match(Photos.photoFor({ toastName: "Classic Rst Turkey Breast" }), /classic-roast-turkey\.webp\?v=8$/);
+  assert.match(Photos.photoFor({ toastName: "Classic Roast Turkey Brst" }), /classic-roast-turkey\.webp\?v=8$/);
   assert.match(Photos.photoFor({ toastName: "Blck Wax Cheddar" }), /^$/);
   assert.equal(Photos.photoFor({ toastName: "Chipped Meat" }), "");
   assert.equal(
