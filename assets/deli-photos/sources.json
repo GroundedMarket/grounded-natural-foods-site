@@ -354,13 +354,28 @@
   },
   {
     "toastName": "Classic Rst Turkey Breast",
-    "file": "assets/deli-photos/oven-roasted-turkey.webp",
-    "page": "https://www.boarshead.com/products/detail/50074-oven-roasted-turkey-breast",
-    "title": "Oven Roasted Turkey Breast",
-    "bytes": 15260,
+    "file": "assets/deli-photos/classic-roast-turkey.webp",
+    "page": "https://boarshead.com/products/detail/13077-boars-head-classic-roast-turkey-breast",
+    "title": "Classic Roast Turkey Breast",
+    "image": "https://www.kroger.com/product/images/xlarge/front/0004242113077",
+    "note": "SKU 13077, UPC 0-42421-13077. Boar's Head publishes a lifestyle hero and a flat label only. The cutout is that SKU's labeled whole piece.",
+    "bytes": 53986,
     "size": [
-      600,
-      527
+      486,
+      600
+    ]
+  },
+  {
+    "toastName": "Classic Roast Turkey Brst",
+    "file": "assets/deli-photos/classic-roast-turkey.webp",
+    "page": "https://boarshead.com/products/detail/13077-boars-head-classic-roast-turkey-breast",
+    "title": "Classic Roast Turkey Breast",
+    "image": "https://www.kroger.com/product/images/xlarge/front/0004242113077",
+    "note": "Same labeled whole piece as Classic Rst Turkey Breast. SKU 13077.",
+    "bytes": 53986,
+    "size": [
+      486,
+      600
     ]
   },
   {

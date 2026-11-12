@@ -62,6 +62,14 @@ var DeliCounter = (function () {
     "horseradish cheddar": true,
     "mozzarella": true,
   };
+  /* Sold by the piece, never sliced. A saved wholePieceOnly flag wins;
+     these names are the default when the flag has not been saved yet. */
+  var WHOLE_PIECE_NAMES = {
+    "classic roast turkey brst": true,
+    "classic rst turkey breast": true,
+    "ham spiral sliced": true,
+    "turkey carved and served oven roastd": true,
+  };
   /* Friendly names for the starter menu. Keys are normalized Toast names. */
   var DISPLAY_NAMES = {
     "chicken chipotle": "Chicken Chipotle",
@@ -223,6 +231,28 @@ function availabilityOf(item) {
     return !!(item && item.catalog === "counter");
   }
 
+  function isWholePieceName(value) {
+    return !!WHOLE_PIECE_NAMES[normalizeName(value)];
+  }
+
+  function isWholePieceOnly(item) {
+    if (!item) return false;
+    if (item.wholePieceOnly === true) return true;
+    if (item.wholePieceOnly === false) return false;
+    var names = [item.toastName, item.name, item.displayName];
+    var i;
+    for (i = 0; i < names.length; i++) {
+      if (isWholePieceName(names[i])) return true;
+    }
+    return false;
+  }
+
+  function wholePieceLabel(count) {
+    var n = Math.round(Number(count));
+    if (!isFinite(n) || n < 1) n = 1;
+    return n === 1 ? "1 whole piece" : n + " whole pieces";
+  }
+
   function isChippedMeat(item) {
     if (!item) return false;
     if (String(item.sku || "") === "70238") return true;
@@ -240,6 +270,10 @@ function availabilityOf(item) {
     if (item.hiddenOnline || item.removed || item.notOfferedOnline) return false;
     var availability = availabilityOf(item);
     if (availability === "discontinued" || item.discontinued) return false;
+    if (isWholePieceOnly(item)) {
+      if (availability === "out") return false;
+      return normalizeLbs(item.lbsOnHand) > 0;
+    }
     if (!effectiveInStock(availability, item.lbsOnHand, threshold)) return false;
     var meatMin = readHours(settings).meatMinLbs;
     if (item.category === "meat" && normalizeLbs(item.lbsOnHand) < meatMin - 1e-9) return false;
@@ -607,6 +641,7 @@ function stockMessage(onHand, requested) {
       hiddenOnline: !!fields.hiddenOnline,
       notOfferedOnline: !!fields.notOfferedOnline,
       removed: !!fields.removed,
+      wholePieceOnly: fields.wholePieceOnly === true,
     };
   }
 
@@ -647,6 +682,7 @@ function seedAvailability(row) {
           hiddenOnline: false,
           notOfferedOnline: String(row.sku || "") === "70238" || normalizeName(row.toastName) === "chipped meat",
           removed: false,
+          wholePieceOnly: isWholePieceName(row.toastName),
         });
         return {
           action: "create",
@@ -701,6 +737,7 @@ function seedAvailability(row) {
         hiddenOnline: !!match.hiddenOnline,
         notOfferedOnline: !!match.notOfferedOnline || String(row.sku || match.sku || "") === "70238" || normalizeName(row.toastName) === "chipped meat",
         removed: !!match.removed,
+        wholePieceOnly: typeof match.wholePieceOnly === "boolean" ? match.wholePieceOnly : isWholePieceName(row.toastName),
       });
       return {
         action: "update",
@@ -900,6 +937,29 @@ function seedAvailability(row) {
       if (!item || !isOrderable(item, threshold, input.settings)) {
         return { ok: false, error: "One of those items just went out of stock. Take another look at the list." };
       }
+      var note = String(line.note || "").trim();
+      if (note.length > 140) return { ok: false, error: "Please keep each item note shorter." };
+      if (isWholePieceOnly(item)) {
+        var pieces = Number(line.pieceCount);
+        if (!isFinite(pieces) || pieces < 1 || pieces > 12 || Math.abs(pieces - Math.round(pieces)) > 1e-9) {
+          return { ok: false, error: "Choose how many whole pieces of " + (item.displayName || item.name) + "." };
+        }
+        items.push({
+          kind: "meatcheese",
+          catalog: "counter",
+          itemId: item.id,
+          name: item.displayName || item.name,
+          weightLbs: 0,
+          sliceStyle: "whole",
+          sliceStyleLabel: "",
+          pieceCount: Math.round(pieces),
+          pricePerLb: normalizePrice(item.pricePerLb),
+          note: note,
+          lineId: line.lineId || "li" + (i + 1),
+          qty: 1,
+        });
+        continue;
+      }
       var weight = normalizeLbs(line.weightLbs);
       var tooSmall = minimumMessage(item.category, weight, input.settings && input.settings.meatMinLbs);
       if (tooSmall) return { ok: false, error: tooSmall };
@@ -922,8 +982,6 @@ function seedAvailability(row) {
       }
       var style = sliceStylesFor(item).filter(function (entry) { return entry.id === line.sliceStyle; })[0];
       if (!style) return { ok: false, error: "Choose how you'd like " + (item.displayName || item.name) + " sliced." };
-      var note = String(line.note || "").trim();
-      if (note.length > 140) return { ok: false, error: "Please keep each item note shorter." };
       items.push({
         kind: "meatcheese",
         catalog: "counter",
@@ -963,7 +1021,7 @@ function seedAvailability(row) {
     var limit = thresholdOf(threshold);
     var need = {};
     (order && order.items || []).forEach(function (line) {
-      if (!line || !line.itemId) return;
+      if (!line || !line.itemId || line.sliceStyle === "whole") return;
       need[line.itemId] = normalizeLbs((need[line.itemId] || 0) + (Number(line.weightLbs) || 0));
     });
     var updates = [];
@@ -1030,6 +1088,13 @@ function seedAvailability(row) {
     lines.push("------------------------------");
     (order && order.items || []).forEach(function (item) {
       var name = item.name || item.displayName || "Item";
+      if (item.sliceStyle === "whole") {
+        lines.push(name);
+        lines.push(wholePieceLabel(item.pieceCount));
+        if (item.note) lines.push("Note: " + item.note);
+        lines.push("");
+        return;
+      }
       var weight = item.weightLbs != null && item.weightLbs !== "" ? formatWeight(item.weightLbs) + " lb" : "";
       var slice = item.sliceStyleLabel || item.sliceStyle || "";
       var detail = [weight, slice].filter(Boolean).join(" · ");
@@ -1064,6 +1129,8 @@ function seedAvailability(row) {
     HOURS_COPY: HOURS_COPY,
     readHours: readHours,
     isChippedMeat: isChippedMeat,
+    isWholePieceOnly: isWholePieceOnly,
+    wholePieceLabel: wholePieceLabel,
     minimumMessage: minimumMessage,
     normalizeName: normalizeName,
     suggestedDisplayName: suggestedDisplayName,

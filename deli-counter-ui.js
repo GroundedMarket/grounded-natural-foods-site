@@ -189,8 +189,7 @@ function deliRenderSlip() {
     deliSlip.map(function (line, index) {
       var item = deliFind(line.itemId);
       var name = item ? item.displayName || item.name : "Item";
-      var style = (DeliCounter.SLICE_STYLES.filter(function (s) { return s.id === line.sliceStyle; })[0] || {}).label || "";
-      return '<div class="deli-slip-line"><span>' + escHtml(DeliCounter.formatWeight(line.weightLbs) + " lb " + style + " — " + name) +
+      return '<div class="deli-slip-line"><span>' + escHtml(deliAmountText(line) + " — " + name) +
         "</span><button type=\"button\" class=\"btn small danger\" onclick=\"deliRemoveSlip(" + index + ")\">✕</button></div>";
     }).join("") +
     '<button type="button" class="btn" onclick="deliOpenCheckout()">Checkout · pay at pickup</button></div>';
@@ -276,15 +275,23 @@ function deliEnsureCheckout() {
 function deliCaptureDialog() {
   if (document.getElementById("deli-name")) deliReadCheckout();
   var weight = document.getElementById("deli-weight-input");
+  var pieces = document.getElementById("deli-piece-input");
   var note = document.getElementById("deli-line-note");
   if (deliDraft && weight) deliDraft.weightLbs = weight.value;
+  if (deliDraft && pieces) deliDraft.pieceCount = pieces.value;
   if (deliDraft && note) deliDraft.note = note.value;
+}
+
+function deliAmountText(line) {
+  if (line.sliceStyle === "whole") return DeliCounter.wholePieceLabel(line.pieceCount);
+  var style = (DeliCounter.SLICE_STYLES.filter(function (s) { return s.id === line.sliceStyle; })[0] || {}).label || "";
+  return DeliCounter.formatWeight(line.weightLbs) + " lb" + (style ? " " + style : "");
 }
 
 function deliDraftMessage() {
   if (!deliDraft) return "";
   var item = deliFind(deliDraft.itemId);
-  if (!item) return "";
+  if (!item || DeliCounter.isWholePieceOnly(item)) return "";
   var weight = Number(deliDraft.weightLbs);
   if (!isFinite(weight) || weight <= 0) return "";
   var tooSmall = DeliCounter.minimumMessage(item.category, weight, deliRuntimeSettings().meatMinLbs);
@@ -294,6 +301,11 @@ function deliDraftMessage() {
 
 function deliDraftCanAdd() {
   if (!deliDraft) return false;
+  var item = deliFind(deliDraft.itemId);
+  if (item && DeliCounter.isWholePieceOnly(item)) {
+    var pieces = Number(deliDraft.pieceCount);
+    return isFinite(pieces) && pieces >= 1 && pieces <= 12 && Math.abs(pieces - Math.round(pieces)) < 1e-9;
+  }
   var weight = Number(deliDraft.weightLbs);
   if (!isFinite(weight) || weight <= 0) return false;
   return !deliDraftMessage();
@@ -311,6 +323,7 @@ function deliEditorHTML() {
   if (!draft) return "";
   var item = deliFind(draft.itemId);
   if (!item) return "";
+  if (DeliCounter.isWholePieceOnly(item)) return deliWholePieceEditorHTML(item, draft);
   var message = deliDraftMessage();
   var catClass = "mc-cat-" + item.category;
   var quick = [0.25, 0.5, 0.75, 1];
@@ -342,6 +355,24 @@ function deliEditorHTML() {
     '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to order</button></div>";
 }
 
+function deliWholePieceEditorHTML(item, draft) {
+  var count = Math.round(Number(draft.pieceCount) || 1);
+  var chips = [1, 2, 3, 4].map(function (n) {
+    var on = count === n ? " is-on" : "";
+    return '<button type="button" class="deli-weight-chip' + on + '" onclick="deliPickPieces(' + n + ')">' + n + "</button>";
+  }).join("");
+  return '<div class="deli-editor" id="deli-editor">' +
+    "<h3>" + escHtml(item.displayName || item.name) + "</h3>" +
+    '<p class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</p>" +
+    '<div class="field deli-amount-field"><label>Whole pieces</label><div class="deli-weight-row">' + chips +
+    '</div><div class="deli-weight-entry"><input type="number" id="deli-piece-input" min="1" max="12" step="1" value="' +
+    count + '" oninput="deliPiecesTyped(this.value)"><span class="deli-lb-suffix">pieces</span></div></div>' +
+    '<p class="mc-public-intro">Price is per pound. The final price is the weight of the piece, paid at pickup.</p>' +
+    '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
+    escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
+    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to order</button></div>";
+}
+
 function deliSummaryHTML() {
   if (!deliSlip.length) return "";
   var problems = deliSlipProblems();
@@ -351,11 +382,10 @@ function deliSummaryHTML() {
     deliSlip.map(function (line, index) {
       var item = deliFind(line.itemId);
       var name = item ? item.displayName || item.name : "Item";
-      var style = (DeliCounter.SLICE_STYLES.filter(function (s) { return s.id === line.sliceStyle; })[0] || {}).label || "";
       var error = problemById[line.itemId]
         ? '<p class="deli-stock-error">' + escHtml(problemById[line.itemId]) + "</p>"
         : "";
-      return '<div class="deli-slip-line"><span>' + escHtml(DeliCounter.formatWeight(line.weightLbs) + " lb " + style + " — " + name) +
+      return '<div class="deli-slip-line"><span>' + escHtml(deliAmountText(line) + " — " + name) +
         '</span><button type="button" class="btn small danger" onclick="deliRemoveSlip(' + index + ')">✕</button></div>' + error;
     }).join("") + "</div>";
 }
@@ -410,7 +440,7 @@ function deliRenderOrderDialog() {
     ? '<h3 class="mc-group-head">Cheese</h3>' + grouped.cheeses.map(deliTileHTML).join("")
     : "";
   openModal('<h3>Order Meat &amp; Cheese</h3>' +
-    '<p class="deli-next-hint">Tap an item to add it. Then enter a weight, and your name and pickup time.</p>' +
+    '<p class="deli-next-hint">Tap an item to add it. Then choose how much, and your name and pickup time.</p>' +
     deliEditorHTML() +
     deliSummaryHTML() +
     deliCheckoutHTML() +
@@ -432,6 +462,18 @@ function deliOpenItem(id) {
   deliCaptureDialog();
   deliEnsureCheckout();
   var sameItem = deliDraft && deliDraft.itemId === id;
+  if (DeliCounter.isWholePieceOnly(item)) {
+    deliDraft = {
+      itemId: id,
+      wholePiece: true,
+      pieceCount: sameItem && deliDraft.pieceCount ? deliDraft.pieceCount : 1,
+      weightLbs: "",
+      sliceStyle: "whole",
+      note: sameItem ? deliDraft.note : "",
+    };
+    deliRenderOrderDialog();
+    return;
+  }
   var starting = DeliCounter.defaultOrderWeight(
     item.lbsOnHand,
     deliRequestedFor(id, 0),
@@ -445,6 +487,24 @@ function deliOpenItem(id) {
     note: sameItem ? deliDraft.note : "",
   };
   deliRenderOrderDialog();
+}
+
+function deliPickPieces(count) {
+  if (!deliDraft) return;
+  deliCaptureDialog();
+  deliDraft.pieceCount = count;
+  deliRenderOrderDialog();
+}
+
+function deliPiecesTyped(value) {
+  if (!deliDraft) return;
+  deliDraft.pieceCount = value;
+  var add = document.getElementById("deli-add-line");
+  if (add) add.disabled = !deliDraftCanAdd();
+  var chosen = Math.round(Number(value));
+  document.querySelectorAll("#deli-editor .deli-weight-chip").forEach(function (button, index) {
+    button.classList.toggle("is-on", index + 1 === chosen);
+  });
 }
 
 function deliPickWeight(weight) {
@@ -485,12 +545,23 @@ function deliAddDraft() {
     alert("An online deli order can have up to 8 items. Call the store for a larger order.");
     return;
   }
-  deliSlip.push({
-    itemId: deliDraft.itemId,
-    weightLbs: Number(deliDraft.weightLbs),
-    sliceStyle: deliDraft.sliceStyle,
-    note: deliDraft.note || "",
-  });
+  var adding = deliFind(deliDraft.itemId);
+  if (adding && DeliCounter.isWholePieceOnly(adding)) {
+    deliSlip.push({
+      itemId: deliDraft.itemId,
+      pieceCount: Math.round(Number(deliDraft.pieceCount)),
+      weightLbs: 0,
+      sliceStyle: "whole",
+      note: deliDraft.note || "",
+    });
+  } else {
+    deliSlip.push({
+      itemId: deliDraft.itemId,
+      weightLbs: Number(deliDraft.weightLbs),
+      sliceStyle: deliDraft.sliceStyle,
+      note: deliDraft.note || "",
+    });
+  }
   deliDraft = null;
   deliRenderOrderDialog();
   deliRenderSlip();
@@ -548,6 +619,7 @@ function deliSubmitOrder() {
         itemId: line.itemId,
         weightLbs: line.weightLbs,
         sliceStyle: line.sliceStyle,
+        pieceCount: line.pieceCount,
         note: line.note,
         lineId: newId("li"),
       };
@@ -705,6 +777,7 @@ function deliManageRowHTML(item) {
     "<br><span class=\"mc-public-tile-sub\">" + escHtml(DeliCounter.formatWeight(item.lbsOnHand || 0)) + " lb · $" +
     Number(item.pricePerLb || item.price || 0).toFixed(2) + "/lb · " + escHtml(deliStatusLabel(item)) +
     (item.category === "meat" ? " · " + escHtml(DeliCounter.MEAT_LABELS[DeliCounter.meatTypeOf ? DeliCounter.meatTypeOf(item) : item.meatType] || item.meatType || "") : "") +
+    (DeliCounter.isWholePieceOnly(item) ? " · Whole piece" : "") +
     "</span></span></span>" + action + "</div>";
 }
 
@@ -953,6 +1026,7 @@ function deliEditItem(id, newCategory) {
     '<option value="in"' + (availability === "in" ? " selected" : "") + ">Force in stock while any weight remains</option>" +
     '<option value="out"' + (availability === "out" ? " selected" : "") + ">Force out of stock</option>" +
     "</select></div>" +
+    '<label class="deli-check"><input id="deli-edit-whole" type="checkbox"' + (item && DeliCounter.isWholePieceOnly(item) ? " checked" : "") + "> Sold by the whole piece only. Customers choose how many pieces, not a weight or a slice.</label>" +
     '<label class="deli-check"><input id="deli-edit-hidden" type="checkbox"' + (item && item.hiddenOnline ? " checked" : "") + "> Hide online for now. This takes it off the customer site.</label>" +
     '<label class="deli-check"><input id="deli-edit-offline" type="checkbox"' + (chipped || (item && item.notOfferedOnline) ? " checked" : "") + (chipped ? " disabled" : "") + "> Not offered online (stays off after imports)</label>" +
     (chipped ? '<p class="mc-public-intro">Chipped Meat stays off the website. The order rules keep that safety check even if this box is cleared.</p>' : "") +
@@ -1007,6 +1081,7 @@ function deliCounterRecord(base, patch) {
     hiddenOnline: !!item.hiddenOnline,
     notOfferedOnline: !!item.notOfferedOnline,
     removed: !!item.removed,
+    wholePieceOnly: !!item.wholePieceOnly,
   };
 }
 
@@ -1048,6 +1123,7 @@ function deliSaveEdited(id, category) {
     sku: document.getElementById("deli-edit-sku").value.trim(),
     iconKey: document.getElementById("deli-edit-icon").value,
     photoUrl: document.getElementById("deli-edit-photo").value.trim(),
+    wholePieceOnly: document.getElementById("deli-edit-whole").checked,
     hiddenOnline: document.getElementById("deli-edit-hidden").checked,
     notOfferedOnline: document.getElementById("deli-edit-offline").checked || DeliCounter.isChippedMeat({
       sku: document.getElementById("deli-edit-sku").value.trim(),
@@ -1293,7 +1369,7 @@ function deliOpenStaffOrder(order) {
     return '<button type="button" class="btn' + on + '"' + disabled + ' onclick="deliSetStatus(\'' + order.id + '\',\'' + next + '\')">' + label + "</button>";
   }
   var lines = (order.items || []).map(function (item) {
-    return "<div>" + escHtml(DeliCounter.formatWeight(item.weightLbs) + " lb " + (item.sliceStyleLabel || "") + " — " + item.name) +
+    return "<div>" + escHtml(deliAmountText(item) + " — " + item.name) +
       (item.note ? '<br><span class="mc-public-tile-sub">Note: ' + escHtml(item.note) + "</span>" : "") +
       (item.pricePerLb ? ' <span class="mc-public-tile-sub">$' + Number(item.pricePerLb).toFixed(2) + "/lb</span>" : "") +
       "</div>";
@@ -1303,7 +1379,7 @@ function deliOpenStaffOrder(order) {
     "<br>Pay at pickup · " + escHtml(status === "pickedUp" ? "Picked Up" : status === "ready" ? "Ready" : "New") + "</p>" +
     (order.notes ? "<p><strong>Note:</strong> " + escHtml(order.notes) + "</p>" : "") +
     '<div class="search-panel-list" style="max-height:240px">' + lines + "</div>" +
-    '<p class="mc-public-intro">Pounds come off on-hand when you mark this Picked Up. The order stays on record. If the case pieces also need weighing, update those tiles by hand — they are a separate count.</p>' +
+    '<p class="mc-public-intro">Sliced items take pounds off on-hand when you mark this Picked Up. A whole piece does not. The order stays on record.</p>' +
     '<div class="modal-actions">' + btn("new", "New") + btn("ready", "Ready") + btn("pickedUp", "Picked Up") +
     '<button type="button" class="btn outline" onclick="manualPrintOrder(\'' + order.id + '\')">Print</button></div>');
 }
