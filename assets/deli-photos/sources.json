@@ -392,12 +392,13 @@
   {
     "toastName": "Colby Jack",
     "file": "assets/deli-photos/colby-jack.webp",
-    "page": "https://www.boarshead.com/products/detail/1137011856-colby-jack-cheese",
+    "page": "",
     "title": "Colby Jack Cheese",
-    "bytes": 18216,
+    "note": "Christy's store photo. Transparent cutout, 600px tall.",
+    "bytes": 73892,
     "size": [
-      600,
-      527
+      474,
+      600
     ]
   },
   {
@@ -414,12 +415,13 @@
   {
     "toastName": "3 Pepper Cojack",
     "file": "assets/deli-photos/three-pepper-colby.webp",
-    "page": "https://www.boarshead.com/products/detail/2039040755-bold-3-pepper-colby-jack-cheese",
+    "page": "",
     "title": "Bold 3 Pepper Colby Jack\u00ae Cheese",
-    "bytes": 17734,
+    "note": "Christy's store photo. Transparent cutout, 600px tall.",
+    "bytes": 75698,
     "size": [
-      600,
-      527
+      423,
+      600
     ]
   },
   {
@@ -447,12 +449,13 @@
   {
     "toastName": "Havarti Plain",
     "file": "assets/deli-photos/havarti.webp",
-    "page": "https://www.boarshead.com/products/detail/1698808969-cream-havarti-cheese",
+    "page": "",
     "title": "Cream Havarti Cheese",
-    "bytes": 13016,
+    "note": "Christy's store photo. Transparent cutout, 600px tall.",
+    "bytes": 87564,
     "size": [
-      600,
-      527
+      461,
+      600
     ]
   },
   {
