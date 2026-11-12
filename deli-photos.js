@@ -72,7 +72,7 @@ var DeliPhotos = (function () {
     var i;
     for (i = 0; i < names.length; i++) {
       var key = normalize(names[i]);
-      if (BY_TOAST[key]) return BY_TOAST[key] + "?v=4";
+      if (BY_TOAST[key]) return BY_TOAST[key] + "?v=5";
     }
     return "";
   }
