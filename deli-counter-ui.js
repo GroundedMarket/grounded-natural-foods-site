@@ -118,6 +118,46 @@ function deliShelfHTML(label, items) {
     '</div><div class="deli-shelf-edge" aria-hidden="true"></div></section>';
 }
 
+function deliMeatItemHTML(item, index) {
+  var open = item.catalog === "counter"
+    ? "deliOpenItem('" + item.id + "')"
+    : "openMeatCheeseOrderModal('" + item.id + "')";
+  var name = item.displayName || item.name;
+  var price = deliPriceAmount(item);
+  var tilts = ["-0.8deg", "0.6deg", "-0.3deg"];
+  return '<button type="button" class="deli-meat-item" style="--tilt:' + tilts[index % 3] + '" onclick="' + open + '" aria-label="' +
+    escHtmlAttr(name + (price ? ", " + price : "") + ". Opens the order dialog.") + '">' +
+    '<span class="deli-meat-photo">' + deliItemMarkHTML(item) + "</span>" +
+    '<span class="deli-meat-tag"><span class="deli-meat-name">' + escHtml(name) + "</span>" +
+    (price ? '<span class="deli-meat-price">' + escHtml(price) + "</span>" : "") +
+    "</span></button>";
+}
+
+/* Five items per desktop shelf. A frosted ledge follows each of those rows.
+   On a phone the row wraps at two items, so a ledge is also inserted after
+   every second item and only shown at that width. */
+function deliMeatRowsHTML(items) {
+  var html = "";
+  var cols = 5;
+  for (var start = 0; start < items.length; start += cols) {
+    var slice = items.slice(start, start + cols);
+    var bits = [];
+    slice.forEach(function (item, index) {
+      if (index > 0 && index % 2 === 0) bits.push('<div class="deli-meat-ledge only-mobile" aria-hidden="true"></div>');
+      bits.push(deliMeatItemHTML(item, start + index));
+    });
+    html += '<div class="deli-meat-row">' + bits.join("") + '</div><div class="deli-meat-ledge" aria-hidden="true"></div>';
+  }
+  return html;
+}
+
+function deliMeatShelfHTML(label, items) {
+  if (!items.length) return "";
+  var id = "deli-shelf-" + String(label).toLowerCase().replace(/[^a-z]+/g, "");
+  return '<section class="deli-meat-shelf" aria-labelledby="' + id + '"><h3 class="deli-shelf-label" id="' + id + '">' +
+    escHtml(label) + "</h3>" + deliMeatRowsHTML(items) + "</section>";
+}
+
 function deliTileHTML(item) {
   var open = item.catalog === "counter"
     ? "deliOpenItem('" + item.id + "')"
@@ -172,9 +212,17 @@ function deliRenderPublicLists() {
     return;
   }
   var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true, settings: deliRuntimeSettings() });
-  var html = grouped.meats.map(function (group) {
-    return deliShelfHTML(group.label, group.items);
-  }).join("") + deliShelfHTML("Cheeses", grouped.cheeses);
+  el.classList.remove("deli-case");
+  var meats = grouped.meats.map(function (group) {
+    return deliMeatShelfHTML(group.label, group.items);
+  }).join("");
+  var cheeses = deliShelfHTML("Cheeses", grouped.cheeses);
+  var html = "";
+  if (meats) {
+    html += '<div class="deli-meat-case"><div class="deli-meat-window"><div class="deli-meat-interior">' + meats +
+      '</div><div class="deli-meat-glass" aria-hidden="true"></div></div></div>';
+  }
+  if (cheeses) html += '<div class="deli-case deli-cheese-case">' + cheeses + "</div>";
   el.innerHTML = html || '<p class="empty-note">Nothing available right now.</p>';
   deliRenderSlip();
 }
