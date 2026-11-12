@@ -380,9 +380,10 @@ service cloud.firestore {
     // only. It must never carry a customer name or phone.
     // Reservations hold the name and phone. Visitors may create one for a
     // weight that is still available, and may not read any reservation.
-    // Master, and employees whose role contains "management", run the
-    // Turkeys tab: list reservations, un-reserve, mark picked up, and
-    // add/edit/remove weights. No email or text is sent from here.
+    // Every employee can open the Turkeys tab and read the pickup list.
+    // Master, and employees whose role contains "management", still add,
+    // edit, and remove weights and mark a turkey picked up. No email or
+    // text is sent from here. The display login cannot read names.
     function isManagement() {
       return signedIn()
         && request.auth.token.role == 'employee'
@@ -392,6 +393,9 @@ service cloud.firestore {
     }
     function canManageTurkeys() {
       return isMaster() || isManagement();
+    }
+    function canReadTurkeyOrders() {
+      return isMaster() || (signedIn() && request.auth.token.role == 'employee');
     }
     function turkeyWeightOk(weight) {
       return weight is string && weight.matches('^\\d{1,2}(\\.\\d{1,2})?$');
@@ -434,7 +438,7 @@ service cloud.firestore {
     }
 
     match /turkeyReservations/{id} {
-      allow get, list: if canManageTurkeys();
+      allow get, list: if canReadTurkeyOrders();
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'inventoryId', 'type', 'weight', 'name', 'phone', 'pickupDate', 'createdAt', 'status'

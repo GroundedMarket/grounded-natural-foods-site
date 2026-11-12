@@ -1,8 +1,8 @@
 /* Staff Login → Turkeys.
-   Master and management only. Lists name, phone, weight, type, pickup
-   date, and when it was reserved. Nothing is emailed or texted.
-   These listeners are NOT part of the app-wide save gate: a missing
-   rules deploy must not block the rest of the portal. */
+   Every employee sees the tab and the reservation list. Adding, editing,
+   and removing weights stays with master and management. Nothing is
+   emailed or texted. These listeners are NOT part of the app-wide save
+   gate: a missing rules deploy must not block the rest of the portal. */
 let turkeyListenersStarted = false;
 let turkeyInventoryReady = false;
 let turkeyReservationsReady = false;
@@ -16,8 +16,12 @@ function canManageTurkeys() {
   return !!(emp && typeof emp.role === "string" && /management/i.test(emp.role));
 }
 
+function canSeeTurkeys() {
+  return !!(session && !session.isDisplay);
+}
+
 function ensureTurkeyPortal() {
-  if (!canManageTurkeys() || turkeyListenersStarted) return;
+  if (!canSeeTurkeys() || turkeyListenersStarted) return;
   turkeyListenersStarted = true;
   fsdb.collection("turkeyInventory").onSnapshot(
     (snap) => {
@@ -120,7 +124,7 @@ function turkeyReservationTable(rows, showPickedUp) {
   return `<table><thead><tr><th>Name</th><th>Phone</th><th>Weight</th><th>Type</th><th>Pickup</th><th>Reserved</th><th></th></tr></thead><tbody>
     ${rows
       .map((row) => {
-        const action = live && showPickedUp
+        const action = live && showPickedUp && canManageTurkeys()
           ? '<button class="btn small" type="button" onclick="markTurkeyPickedUp(\'' + row.id + '\')">Picked Up</button>'
           : "—";
         return `<tr>
@@ -139,6 +143,7 @@ function turkeyReservationTable(rows, showPickedUp) {
 
 function turkeysTabHTML() {
   const live = turkeyPortalLive();
+  const manage = canManageTurkeys();
   const birds = turkeyRows().sort(turkeyCompare);
   const reservations = turkeyReservationRows();
   const banner = live
@@ -163,8 +168,10 @@ function turkeysTabHTML() {
             ${list
               .map((bird) => {
                 const held = bird.status === "reserved" || bird.status === "pickedUp" || bird.reservationId;
-                const actions = !live
-                  ? "—"
+                const actions = !live || !manage
+                  ? held
+                    ? "On record"
+                    : "—"
                   : held
                     ? "On record"
                     : `<div class="turkey-actions">
@@ -180,7 +187,7 @@ function turkeysTabHTML() {
   };
   return `<div class="turkey-admin">
     <h2 class="section-title">Turkeys ${
-      live ? '<button class="btn" type="button" onclick="addTurkeyWeight()">+ Add weight</button>' : ""
+      live && manage ? '<button class="btn" type="button" onclick="addTurkeyWeight()">+ Add weight</button>' : ""
     }</h2>
     ${banner}
     ${live ? '<p class="turkey-note">Picked-up reservations stay here with the customer’s name, phone, type, and weight. Nothing is emailed or texted, and customers never see a name or phone.</p>' : ""}

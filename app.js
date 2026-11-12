@@ -1824,7 +1824,7 @@ function afterFirestoreUpdate() {
     }
   }
   if (session && !session.isMaster && document.getElementById("portal-tabs")) {
-    const showTurkeys = canManageTurkeys();
+    const showTurkeys = typeof canSeeTurkeys === "function" && canSeeTurkeys();
     const hasTurkeys = !!document.querySelector('.portal-tab[data-tab="Turkeys"]');
     if (showTurkeys !== hasTurkeys) renderPortalTabs();
   }
@@ -4156,7 +4156,9 @@ function renderPortalTabs() {
     if (canManageOnlineDeli() && tabs.indexOf("Meats & Cheese") === -1) {
       tabs.splice(3, 0, "Meats & Cheese");
     }
-    if (canManageTurkeys()) tabs.push("Turkeys");
+    if (typeof canSeeTurkeys === "function" && canSeeTurkeys()) {
+      tabs.unshift("Turkeys");
+    }
   }
   document.getElementById("portal-tabs").innerHTML = tabs
     .map(
