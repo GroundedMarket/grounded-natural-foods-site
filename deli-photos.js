@@ -35,7 +35,8 @@ var DeliPhotos = (function () {
     "ham bourbon": "assets/deli-photos/bourbonridge-ham.webp",
     "ham honey maple": "assets/deli-photos/honey-maple-ham.webp",
     "ichiban teriyaki chicken": "assets/deli-photos/ichiban-teriyaki.webp",
-    "classic rst turkey breast": "assets/deli-photos/oven-roasted-turkey.webp",
+    "classic rst turkey breast": "assets/deli-photos/classic-roast-turkey.webp",
+    "classic roast turkey brst": "assets/deli-photos/classic-roast-turkey.webp",
     "turkey no salt ad": "assets/deli-photos/no-salt-turkey.webp",
     "colby jack": "assets/deli-photos/colby-jack.webp",
     "american yellow": "assets/deli-photos/american-yellow.webp",
@@ -72,7 +73,7 @@ var DeliPhotos = (function () {
     var i;
     for (i = 0; i < names.length; i++) {
       var key = normalize(names[i]);
-      if (BY_TOAST[key]) return BY_TOAST[key] + "?v=5";
+      if (BY_TOAST[key]) return BY_TOAST[key] + "?v=6";
     }
     return "";
   }

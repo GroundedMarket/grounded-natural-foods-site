@@ -366,6 +366,59 @@ test("a deli pickup prints as a deli ticket, not a custom salad", () => {
   assert.equal(ticket.includes("Custom Salad"), false);
 });
 
+test("whole pieces skip the slice, the weight, and the quarter-pound minimum", () => {
+  const names = ["Ham Spiral Sliced", "Classic Rst Turkey Breast", "Turkey Carved and Served Oven Roastd"];
+  names.forEach((toastName) => {
+    const item = catalog().find((entry) => entry.toastName === toastName);
+    assert.ok(item, toastName);
+    assert.equal(item.wholePieceOnly, true);
+    assert.equal(DC.isWholePieceOnly(item), true);
+    const light = Object.assign({}, item, { lbsOnHand: 0.1, availability: "auto", discontinued: false, inStock: false });
+    assert.equal(DC.isOrderable(light, 0.25), true);
+    assert.equal(DC.isOrderable(Object.assign({}, light, { lbsOnHand: 0 }), 0.25), false);
+    assert.equal(DC.isOrderable(Object.assign({}, light, { availability: "out", lbsOnHand: 4 }), 0.25), false);
+  });
+  assert.equal(DC.isWholePieceOnly({ toastName: "Ham Spiral Sliced", wholePieceOnly: false }), false);
+  const ham = Object.assign({}, catalog().find((entry) => entry.toastName === "Ham Spiral Sliced"), {
+    lbsOnHand: 0.1,
+    availability: "auto",
+    inStock: false,
+  });
+  const now = new Date(2026, 10, 11, 10, 0, 0);
+  const built = DC.buildOrder({
+    customerName: "Jamie Ellis",
+    customerPhone: "(812) 555-0142",
+    pickupDate: "2026-11-13",
+    pickupTime: "11:00",
+    notes: "",
+    now,
+    closedDates: [],
+    threshold: 0.25,
+    itemsById: { [ham.id]: ham },
+    lines: [{ itemId: ham.id, pieceCount: 2, weightLbs: 5, sliceStyle: "thin", note: "", lineId: "li1" }],
+  });
+  assert.equal(built.ok, true);
+  assert.equal(built.order.items[0].sliceStyle, "whole");
+  assert.equal(built.order.items[0].pieceCount, 2);
+  assert.equal(built.order.items[0].weightLbs, 0);
+  assert.equal(built.order.items[0].sliceStyleLabel, "");
+  const ticket = DC.formatDeliTicket(built.order);
+  assert.match(ticket, /Ham Spiral Sliced\n2 whole pieces/);
+  assert.equal(ticket.includes("Thin"), false);
+  assert.equal(ticket.includes(" lb"), false);
+  const plan = DC.planPickupDecrement([ham], built.order, 0.25);
+  assert.equal(plan.updates.length, 0);
+  const turnedOff = DC.applyPosRows([Object.assign({}, ham, { wholePieceOnly: false })], [{
+    toastItemId: ham.toastItemId,
+    sku: ham.sku,
+    toastName: ham.toastName,
+    category: "meat",
+    lbsOnHand: 3,
+    pricePerLb: ham.pricePerLb,
+  }], { threshold: 0.25 })[0];
+  assert.equal(turnedOff.item.wholePieceOnly, false);
+});
+
 test("marking an order picked up subtracts pounds and floors at zero", () => {
   const item = Object.assign({}, catalog().find((entry) => entry.displayName === "Sweet Slice"));
   const plan = DC.planPickupDecrement(
@@ -470,9 +523,11 @@ test("re-import keeps an icon and the hide flags", () => {
 
 test("a Boar's Head photo follows the Toast name, and a saved URL replaces it", () => {
   const Photos = require("./deli-photos.js");
-  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=5$/);
-  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=5$/);
-  assert.match(Photos.photoFor({ toastName: "Ham Spiral Sliced" }), /assets\/deli-photos\/spiral-ham\.webp\?v=5$/);
+  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=6$/);
+  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=6$/);
+  assert.match(Photos.photoFor({ toastName: "Ham Spiral Sliced" }), /assets\/deli-photos\/spiral-ham\.webp\?v=6$/);
+  assert.match(Photos.photoFor({ toastName: "Classic Rst Turkey Breast" }), /classic-roast-turkey\.webp\?v=6$/);
+  assert.match(Photos.photoFor({ toastName: "Classic Roast Turkey Brst" }), /classic-roast-turkey\.webp\?v=6$/);
   assert.match(Photos.photoFor({ toastName: "Blck Wax Cheddar" }), /^$/);
   assert.equal(Photos.photoFor({ toastName: "Chipped Meat" }), "");
   assert.equal(

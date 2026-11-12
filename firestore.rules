@@ -108,7 +108,8 @@ service cloud.firestore {
         && (!data.keys().hasAny(['photoUrl']) || (data.photoUrl is string && data.photoUrl.size() <= 400))
         && (!data.keys().hasAny(['hiddenOnline']) || data.hiddenOnline is bool)
         && (!data.keys().hasAny(['notOfferedOnline']) || data.notOfferedOnline is bool)
-        && (!data.keys().hasAny(['removed']) || data.removed is bool);
+        && (!data.keys().hasAny(['removed']) || data.removed is bool)
+        && (!data.keys().hasAny(['wholePieceOnly']) || data.wholePieceOnly is bool);
     }
     match /meatCheeseItems/{id}  {
       allow read: if signedIn();
@@ -137,7 +138,7 @@ service cloud.firestore {
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
           'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
-          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl'
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl', 'wholePieceOnly'
         ]);
       allow create: if canEditOnlineDeli()
         && counterShape(request.resource.data)
@@ -150,7 +151,7 @@ service cloud.firestore {
           'displayName', 'displayNameCustom', 'price', 'pricePerLb', 'lbsOnHand',
           'availableWeight', 'inStock', 'availability', 'discontinued', 'posSource',
           'emoji', 'brand', 'notes', 'meatType', 'meatTypeEdited',
-          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl'
+          'iconKey', 'hiddenOnline', 'notOfferedOnline', 'removed', 'photoUrl', 'wholePieceOnly'
         ]);
     }
     // meatCheeseSlots is just which catalog item sits in which visual case
@@ -224,21 +225,28 @@ service cloud.firestore {
         && request.resource.data.staffComment == ''
         && request.resource.data.submittedAt is string;
     }
+    function catalogIsWholePiece(data) {
+      return data.wholePieceOnly == true
+        || (
+          !data.keys().hasAny(['wholePieceOnly'])
+          && data.toastName in [
+            'Ham Spiral Sliced',
+            'Classic Roast Turkey Brst',
+            'Classic Rst Turkey Breast',
+            'Turkey Carved and Served Oven Roastd'
+          ]
+        );
+    }
     function deliLineOk(item) {
+      let data = get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data;
       return item.keys().hasOnly([
           'kind', 'catalog', 'itemId', 'name', 'weightLbs', 'sliceStyle',
-          'sliceStyleLabel', 'pricePerLb', 'note', 'lineId', 'qty'
+          'sliceStyleLabel', 'pricePerLb', 'note', 'lineId', 'qty', 'pieceCount'
         ])
         && item.kind == 'meatcheese'
         && item.catalog == 'counter'
         && item.qty == 1
-        && item.weightLbs is number
-        && item.weightLbs > 0
-        && item.weightLbs <= 30
-        && item.sliceStyle in ['shaved', 'thin', 'medium', 'large', 'thick']
         && item.sliceStyleLabel is string
-        && (get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.category != 'cheese'
-          || item.sliceStyle != 'shaved')
         && item.note is string
         && item.note.size() <= 140
         && item.name is string
@@ -248,18 +256,37 @@ service cloud.firestore {
         && item.lineId is string
         && item.pricePerLb is number
         && exists(/databases/$(database)/documents/meatCheeseItems/$(item.itemId))
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.catalog == 'counter'
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.inStock == true
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.discontinued == false
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.lbsOnHand >= item.weightLbs
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.pricePerLb == item.pricePerLb
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.toastName != 'Chipped Meat'
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('sku', '') != '70238'
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('hiddenOnline', false) != true
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('notOfferedOnline', false) != true
-        && get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.get('removed', false) != true
-        && (get(/databases/$(database)/documents/meatCheeseItems/$(item.itemId)).data.category != 'meat'
-          || item.weightLbs >= deliMeatMin());
+        && data.catalog == 'counter'
+        && data.inStock == true
+        && data.discontinued == false
+        && data.pricePerLb == item.pricePerLb
+        && data.toastName != 'Chipped Meat'
+        && data.get('sku', '') != '70238'
+        && data.get('hiddenOnline', false) != true
+        && data.get('notOfferedOnline', false) != true
+        && data.get('removed', false) != true
+        && (
+          (
+            catalogIsWholePiece(data)
+            && item.sliceStyle == 'whole'
+            && item.sliceStyleLabel == ''
+            && item.weightLbs == 0
+            && item.pieceCount is int
+            && item.pieceCount >= 1
+            && item.pieceCount <= 12
+          )
+          || (
+            !catalogIsWholePiece(data)
+            && !item.keys().hasAny(['pieceCount'])
+            && item.weightLbs is number
+            && item.weightLbs > 0
+            && item.weightLbs <= 30
+            && item.sliceStyle in ['shaved', 'thin', 'medium', 'large', 'thick']
+            && (data.category != 'cheese' || item.sliceStyle != 'shaved')
+            && data.lbsOnHand >= item.weightLbs
+            && (data.category != 'meat' || item.weightLbs >= deliMeatMin())
+          )
+        );
     }
     function deliLinesOk(items) {
       return items.size() >= 1
