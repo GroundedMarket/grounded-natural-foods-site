@@ -60,6 +60,7 @@ var DeliCounter = (function () {
     "smoked gouda": true,
     "caramelized onion jack": true,
     "horseradish cheddar": true,
+    "mozzarella": true,
   };
   /* Friendly names for the starter menu. Keys are normalized Toast names. */
   var DISPLAY_NAMES = {

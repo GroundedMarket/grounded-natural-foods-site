@@ -18,7 +18,7 @@ test("starter catalog keeps deli meat and cheese only", () => {
   });
 });
 
-test("public list is the owner's 19 meats and 11 cheeses, grouped and alphabetized", () => {
+test("public list is the owner's 19 meats and 10 cheeses, grouped and alphabetized", () => {
   const grouped = DC.groupCatalog(catalog(), 0.25, { publicOnly: true });
   const names = (group) => group.items.map((item) => item.displayName);
   assert.deepEqual(grouped.meats.map((group) => group.label), ["Chicken", "Turkey", "Ham", "Beef"]);
@@ -55,7 +55,6 @@ test("public list is the owner's 19 meats and 11 cheeses, grouped and alphabetiz
       "Colby Jack",
       "Havarti Plain",
       "Lacey Swiss",
-      "Mozzarella",
       "Provolone",
       "Smoked Cheddar",
       "Vermont Cheddar",
@@ -98,7 +97,7 @@ test("negative Toast quantities are stored as 0 lb and out of stock", () => {
 
 test("discontinued cheeses stay off the public list", () => {
   const items = catalog();
-  ["Smoked Gouda", "CARAMELIZED ONION JACK", "Horseradish Cheddar"].forEach((name) => {
+  ["Smoked Gouda", "CARAMELIZED ONION JACK", "Horseradish Cheddar", "Mozzarella"].forEach((name) => {
     const item = items.find((entry) => entry.toastName === name);
     assert.equal(item.discontinued, true);
     assert.equal(item.availability, "discontinued");
@@ -471,8 +470,8 @@ test("re-import keeps an icon and the hide flags", () => {
 
 test("a Boar's Head photo follows the Toast name, and a saved URL replaces it", () => {
   const Photos = require("./deli-photos.js");
-  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=3$/);
-  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=3$/);
+  assert.match(Photos.photoFor({ toastName: "Turkey Ovengold" }), /assets\/deli-photos\/ovengold\.webp\?v=4$/);
+  assert.match(Photos.photoFor({ toastName: "Chicken Chipotle" }), /chipotle-chicken\.webp\?v=4$/);
   assert.match(Photos.photoFor({ toastName: "Blck Wax Cheddar" }), /^$/);
   assert.equal(Photos.photoFor({ toastName: "Chipped Meat" }), "");
   assert.equal(
