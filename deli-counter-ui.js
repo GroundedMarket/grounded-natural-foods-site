@@ -130,16 +130,40 @@ function deliTileHTML(item) {
 }
 
 function deliGroupId(label) {
-  return "deli-group-" + String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return typeof DeliCounter !== "undefined" && DeliCounter.sectionId
+    ? DeliCounter.sectionId(label)
+    : "deli-group-" + String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-function deliGroupBlockHTML(label, items) {
-  if (!items.length) return "";
-  var id = deliGroupId(label);
-  var head = label
-    ? '<h3 class="mc-group-head" id="' + id + '">' + escHtml(label) + "</h3>"
-    : "";
-  return head + items.map(deliTileHTML).join("");
+var deliOpenGroup = "";
+
+function deliToggleGroup(id) {
+  deliCaptureDialog();
+  deliOpenGroup = DeliCounter.nextOpenSection(deliOpenGroup, id);
+  deliRenderOrderDialog();
+  var btn = document.getElementById(id + "-btn");
+  if (btn && typeof btn.focus === "function") btn.focus();
+}
+
+function deliAccordionHTML(grouped) {
+  var sections = DeliCounter.catalogSections(grouped);
+  if (!sections.length) return '<p class="empty-note">Nothing available right now.</p>';
+  return sections.map(function (section) {
+    var open = deliOpenGroup === section.id;
+    var panelId = section.id + "-panel";
+    var btnId = section.id + "-btn";
+    return '<div class="deli-accordion-section">' +
+      '<button type="button" class="deli-accordion-toggle" id="' + btnId + '"' +
+        ' aria-expanded="' + (open ? "true" : "false") + '"' +
+        ' aria-controls="' + panelId + '"' +
+        " onclick=\"deliToggleGroup('" + section.id + "')\">" +
+        '<span class="mc-group-head">' + escHtml(section.label) + "</span>" +
+      "</button>" +
+      '<div class="deli-accordion-panel" id="' + panelId + '" role="region" aria-labelledby="' + btnId + '"' +
+        (open ? "" : " hidden") + ">" +
+        section.items.map(deliTileHTML).join("") +
+      "</div></div>";
+  }).join("");
 }
 
 function isDeliCartLine(line) {
@@ -153,31 +177,6 @@ function deliCartLines() {
 function deliClearCartLines() {
   if (typeof orderCart === "undefined") return;
   orderCart = orderCart.filter(function (line) { return !isDeliCartLine(line); });
-}
-
-function deliJumpToGroup(id) {
-  var list = document.querySelector("#modal-root .deli-order-list");
-  var target = document.getElementById(id);
-  if (!list || !target) return;
-  list.scrollTop = Math.max(0, target.offsetTop - list.offsetTop);
-}
-
-function deliJumpChipsHTML(grouped) {
-  var chips = [];
-  (grouped.meats || []).forEach(function (group) {
-    if (group && group.items && group.items.length) {
-      chips.push({ id: deliGroupId(group.label), label: group.label });
-    }
-  });
-  if (grouped.cheeses && grouped.cheeses.length) {
-    chips.push({ id: deliGroupId("Cheese"), label: "Cheese" });
-  }
-  if (!chips.length) return "";
-  return '<div class="deli-jump-row" role="navigation" aria-label="Jump to a meat or cheese section">' +
-    chips.map(function (chip) {
-      return '<button type="button" class="btn small outline" onclick="deliJumpToGroup(\'' +
-        chip.id + '\')">' + escHtml(chip.label) + '</button>';
-    }).join("") + "</div>";
 }
 
 function deliRenderSlip() {
@@ -429,18 +428,11 @@ function deliRenderOrderDialog() {
   }
   deliEnsureCheckout();
   var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true, settings: deliRuntimeSettings() });
-  var meatHtml = grouped.meats.map(function (group) {
-    return deliGroupBlockHTML(group.label, group.items);
-  }).join("");
-  var cheeseHtml = grouped.cheeses.length
-    ? '<h3 class="mc-group-head" id="' + deliGroupId("Cheese") + '">Cheese</h3>' + grouped.cheeses.map(deliTileHTML).join("")
-    : "";
   openModal('<h3>Order Meat &amp; Cheese</h3>' +
-    '<p class="deli-next-hint">Tap an item to add it to your cart, then choose how much and how it should be sliced. Use the buttons to jump to a section.</p>' +
+    '<p class="deli-next-hint">Tap a category to see what\'s in the case. Then tap an item to add it to your cart and choose how much and how it should be sliced.</p>' +
     deliEditorHTML() +
     deliSummaryHTML() +
-    deliJumpChipsHTML(grouped) +
-    '<div class="mc-public-list deli-order-list">' + (meatHtml + cheeseHtml || '<p class="empty-note">Nothing available right now.</p>') + "</div>" +
+    '<div class="mc-public-list deli-order-list">' + deliAccordionHTML(grouped) + "</div>" +
     '<div class="modal-actions"><button class="btn outline" onclick="deliDraft=null;closeModal()">Close</button></div>');
   var editor = document.getElementById("deli-editor");
   if (editor && editor.scrollIntoView) editor.scrollIntoView({ block: "nearest" });
@@ -448,6 +440,7 @@ function deliRenderOrderDialog() {
 
 function deliOpenGroupedPicker() {
   deliDraft = null;
+  deliOpenGroup = "";
   deliEnsureCheckout();
   deliRenderOrderDialog();
 }
@@ -457,6 +450,11 @@ function deliOpenItem(id) {
   if (!item) return;
   deliCaptureDialog();
   deliEnsureCheckout();
+  deliOpenGroup = DeliCounter.sectionIdForItem(item, DeliCounter.groupCatalog(
+    db.meatCheeseItems || [],
+    deliThreshold(),
+    { publicOnly: true, settings: deliRuntimeSettings() }
+  ));
   var sameItem = deliDraft && deliDraft.itemId === id;
   if (DeliCounter.isWholePieceOnly(item)) {
     deliDraft = {

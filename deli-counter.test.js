@@ -636,3 +636,25 @@ test("public mixed orders are allowed alongside kitchen and deli-only writes", (
   assert.match(create, /validPublicDeliOrder\(\)/);
   assert.match(create, /validPublicMixedOrder\(\)/);
 });
+
+test("the public popup lists only stocked category sections, one open at a time", () => {
+  const grouped = DC.groupCatalog(catalog(), 0.25, { publicOnly: true });
+  const sections = DC.catalogSections(grouped);
+  assert.deepEqual(sections.map((section) => section.label), ["Chicken", "Turkey", "Ham", "Beef", "Cheese"]);
+  sections.forEach((section) => {
+    assert.ok(section.items.length > 0, section.label);
+    assert.equal(section.id, DC.sectionId(section.label));
+    section.items.forEach((item) => {
+      if (section.type === "cheese") assert.equal(item.category, "cheese");
+      else assert.equal(item.category, "meat");
+    });
+  });
+  assert.equal(DC.nextOpenSection("", "deli-group-chicken"), "deli-group-chicken");
+  assert.equal(DC.nextOpenSection("deli-group-chicken", "deli-group-turkey"), "deli-group-turkey");
+  assert.equal(DC.nextOpenSection("deli-group-turkey", "deli-group-turkey"), "");
+  const chicken = sections[0].items[0];
+  assert.equal(DC.sectionIdForItem(chicken, grouped), "deli-group-chicken");
+  const cheese = sections[sections.length - 1].items[0];
+  assert.equal(DC.sectionIdForItem(cheese, grouped), "deli-group-cheese");
+  assert.equal(DC.sectionIdForItem({ id: "missing" }, grouped), "");
+});

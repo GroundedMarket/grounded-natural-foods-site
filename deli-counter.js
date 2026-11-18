@@ -383,6 +383,52 @@ function stockMessage(onHand, requested) {
     return { meats: meats, cheeses: cheeses };
   }
 
+  function sectionId(label) {
+    return "deli-group-" + String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+
+  /* Public popup sections, in display order. Empty groups are omitted. */
+  function catalogSections(grouped) {
+    var sections = [];
+    ((grouped && grouped.meats) || []).forEach(function (group) {
+      if (group && group.items && group.items.length) {
+        sections.push({
+          id: sectionId(group.label),
+          type: group.type,
+          label: group.label,
+          items: group.items,
+        });
+      }
+    });
+    if (grouped && grouped.cheeses && grouped.cheeses.length) {
+      sections.push({
+        id: sectionId("Cheese"),
+        type: "cheese",
+        label: "Cheese",
+        items: grouped.cheeses,
+      });
+    }
+    return sections;
+  }
+
+  function sectionIdForItem(item, grouped) {
+    var sections = catalogSections(grouped);
+    var i;
+    var j;
+    for (i = 0; i < sections.length; i++) {
+      for (j = 0; j < sections[i].items.length; j++) {
+        if (item && sections[i].items[j].id === item.id) return sections[i].id;
+      }
+    }
+    return "";
+  }
+
+  /* One section open at a time. Tapping the open section closes it. */
+  function nextOpenSection(currentId, tappedId) {
+    if (!tappedId) return currentId || "";
+    return currentId === tappedId ? "" : tappedId;
+  }
+
   /* Staff shelf. Discontinued and removed items stay in Manage online deli.
      Hidden items with pounds still appear. Out of stock stays off unless
      the case toggle asks for it. Slots are not consulted. */
@@ -1170,6 +1216,10 @@ function seedAvailability(row) {
     stockMessage: stockMessage,
     defaultOrderWeight: defaultOrderWeight,
     groupCatalog: groupCatalog,
+    catalogSections: catalogSections,
+    sectionId: sectionId,
+    sectionIdForItem: sectionIdForItem,
+    nextOpenSection: nextOpenSection,
     staffCaseGroups: staffCaseGroups,
     parseToastExportCsv: parseToastExportCsv,
     registerPosAdapter: registerPosAdapter,
