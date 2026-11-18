@@ -587,3 +587,74 @@ test("a public deli order fetches only the line items and store/deliCounter", ()
   const distinct = new Set(paths.map((path) => path.split("/")[1]));
   assert.deepEqual([...distinct].sort(), ["meatCheeseItems", "store"]);
 });
+
+test("a mixed cart is not a deli-only pickup even with payAtPickup set", () => {
+  const deliLine = {
+    kind: "meatcheese",
+    catalog: "counter",
+    name: "Buffalo",
+    weightLbs: 0.5,
+    sliceStyle: "thin",
+  };
+  const soup = { kind: "soup", name: "Tomato Bisque", qty: 1 };
+  const mixed = {
+    payAtPickup: true,
+    notes: "One bag",
+    items: [deliLine, soup],
+  };
+  assert.equal(DC.isDeliPickupOrder(mixed), false);
+  assert.equal(DC.isCounterDeliLine(deliLine), true);
+  assert.equal(DC.isCounterDeliLine(soup), false);
+  assert.deepEqual(DC.deliItemsOf(mixed).map((item) => item.name), ["Buffalo"]);
+  assert.deepEqual(DC.kitchenItemsOf(mixed).map((item) => item.name), ["Tomato Bisque"]);
+  assert.equal(DC.isDeliPickupOrder({
+    channel: "deliCounter",
+    payAtPickup: true,
+    items: [deliLine],
+  }), true);
+  assert.equal(DC.isDeliPickupOrder({
+    items: [{ kind: "meatcheese", name: "Legacy ham", weightLbs: 1, sliceStyle: "thin" }],
+  }), false);
+  const ticket = DC.formatDeliTicket(Object.assign({}, mixed, { items: DC.deliItemsOf(mixed), customerName: "Jamie", customerPhone: "8125550142", pickupDate: "2026-11-13", pickupTime: "11:00" }));
+  assert.match(ticket, /Buffalo/);
+  assert.equal(ticket.includes("Tomato Bisque"), false);
+});
+
+test("public mixed orders are allowed alongside kitchen and deli-only writes", () => {
+  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
+  assert.match(rules, /validPublicMixedOrder\(\)/);
+  assert.match(rules, /function validPublicMixedOrder/);
+  const body = ["deliLineOk", "mixedSlotOk", "mixedItemsOk", "validPublicMixedOrder"]
+    .map((name) => rulesFunction(rules, name))
+    .join("\n");
+  const paths = body.match(/documents\/[A-Za-z0-9_/{}$().]+/g) || [];
+  paths.forEach((path) => {
+    assert.match(path, /^documents\/(meatCheeseItems\/|store\/deliCounter)/);
+  });
+  const create = rules.slice(rules.indexOf("match /orders/{id}"), rules.indexOf("allow get:"));
+  assert.match(create, /validPublicKitchenOrder\(\)/);
+  assert.match(create, /validPublicDeliOrder\(\)/);
+  assert.match(create, /validPublicMixedOrder\(\)/);
+});
+
+test("the public popup lists only stocked category sections, one open at a time", () => {
+  const grouped = DC.groupCatalog(catalog(), 0.25, { publicOnly: true });
+  const sections = DC.catalogSections(grouped);
+  assert.deepEqual(sections.map((section) => section.label), ["Chicken", "Turkey", "Ham", "Beef", "Cheese"]);
+  sections.forEach((section) => {
+    assert.ok(section.items.length > 0, section.label);
+    assert.equal(section.id, DC.sectionId(section.label));
+    section.items.forEach((item) => {
+      if (section.type === "cheese") assert.equal(item.category, "cheese");
+      else assert.equal(item.category, "meat");
+    });
+  });
+  assert.equal(DC.nextOpenSection("", "deli-group-chicken"), "deli-group-chicken");
+  assert.equal(DC.nextOpenSection("deli-group-chicken", "deli-group-turkey"), "deli-group-turkey");
+  assert.equal(DC.nextOpenSection("deli-group-turkey", "deli-group-turkey"), "");
+  const chicken = sections[0].items[0];
+  assert.equal(DC.sectionIdForItem(chicken, grouped), "deli-group-chicken");
+  const cheese = sections[sections.length - 1].items[0];
+  assert.equal(DC.sectionIdForItem(cheese, grouped), "deli-group-cheese");
+  assert.equal(DC.sectionIdForItem({ id: "missing" }, grouped), "");
+});

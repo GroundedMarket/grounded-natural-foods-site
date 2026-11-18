@@ -612,71 +612,7 @@ function eposEscape(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-function buildEposPrintXML(order) {
-  const esc = eposEscape;
-  let body = "";
-  // Deli pickup shares the orders collection. Anything that is not a menu,
-  // soup, coffee, or meatcheese line used to fall through to "Custom Salad".
-  // A deli order gets its own ticket from the channel, not from that default.
-  if (typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(order)) {
-    const ticket = DeliCounter.formatDeliTicket(order).split("\n");
-    const header = ticket[0] || "DELI ORDER — Meats & Cheese";
-    const rest = ticket.slice(1).map(esc).join("&#10;");
-    body += `<text align="center" width="2" height="2">${esc(header)}&#10;</text>`;
-    body += `<text align="left" width="1" height="1">${rest}&#10;&#10;</text>`;
-    body += `<cut type="feed"/>`;
-    return `<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
-      ${body}
-    </epos-print>
-  </s:Body>
-</s:Envelope>`;
-  }
-  body += `<text align="center" width="2" height="2">GROUNDED ORDER&#10;&#10;</text>`;
-  body += `<text align="left" width="1" height="1">`;
-  body += `${esc(order.customerName)}   ${esc(order.customerPhone)}&#10;`;
-  body += `Pickup: ${order.pickupDate} ${formatTime12hr(
-    order.pickupTime
-  )}&#10;`;
-  body += `------------------------------&#10;`;
-  (order.items || []).forEach((item) => {
-    if (
-      item.kind === "menu" ||
-      item.kind === "soup" ||
-      item.kind === "coffee"
-    ) {
-      body += `x${item.qty}  ${esc(item.name)}&#10;`;
-      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
-    } else if (item.kind === "meatcheese") {
-      body += `${esc(mcFmtLbs(item.weightLbs))} lb ${esc(
-        item.sliceStyleLabel || item.sliceStyle || ""
-      )}  ${esc(item.name)}&#10;`;
-      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
-    } else if (item.kind === "custom" || item.customType) {
-      body += `x${item.qty || 1}  Custom ${
-        item.customType === "panini" ? "Panini" : "Salad"
-      }&#10;`;
-      (item.selections || []).forEach((sel) => {
-        body += `   - ${esc(sel.item)}&#10;`;
-      });
-      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
-    } else {
-      body += `x${item.qty || 1}  ${esc(item.name)}&#10;`;
-      if (item.note) body += `   note: ${esc(item.note)}&#10;`;
-    }
-  });
-  body += `------------------------------&#10;`;
-  if (order.channel === "deliCounter" || order.payAtPickup) {
-    body += `PAY AT PICKUP&#10;`;
-    if (order.notes) body += `Note: ${esc(order.notes)}&#10;`;
-  }
-  body += `Submitted: ${new Date(
-    order.submittedAt
-  ).toLocaleString()}&#10;&#10;`;
-  body += `</text>`;
-  body += `<cut type="feed"/>`;
+function eposEnvelope(body) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
   <s:Body>
@@ -685,6 +621,86 @@ function buildEposPrintXML(order) {
     </epos-print>
   </s:Body>
 </s:Envelope>`;
+}
+function eposDeliTicketBody(order) {
+  const esc = eposEscape;
+  const ticket = DeliCounter.formatDeliTicket(order).split("\n");
+  const header = ticket[0] || "DELI ORDER — Meats & Cheese";
+  const rest = ticket.slice(1).map(esc).join("&#10;");
+  return `<text align="center" width="2" height="2">${esc(header)}&#10;</text>` +
+    `<text align="left" width="1" height="1">${rest}&#10;&#10;</text>` +
+    `<cut type="feed"/>`;
+}
+function buildEposPrintXML(order) {
+  const esc = eposEscape;
+  let body = "";
+  // Deli pickup shares the orders collection. Anything that is not a menu,
+  // soup, coffee, or meatcheese line used to fall through to "Custom Salad".
+  // A deli-only order gets its own ticket. A mixed cart prints a kitchen
+  // ticket first, then a deli ticket for the counter lines.
+  if (typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(order)) {
+    return eposEnvelope(eposDeliTicketBody(order));
+  }
+  const deliItems =
+    typeof DeliCounter !== "undefined" ? DeliCounter.deliItemsOf(order) : [];
+  const kitchenItems =
+    typeof DeliCounter !== "undefined"
+      ? DeliCounter.kitchenItemsOf(order)
+      : order.items || [];
+  if (kitchenItems.length) {
+    body += `<text align="center" width="2" height="2">GROUNDED ORDER&#10;&#10;</text>`;
+    body += `<text align="left" width="1" height="1">`;
+    body += `${esc(order.customerName)}   ${esc(order.customerPhone)}&#10;`;
+    body += `Pickup: ${order.pickupDate} ${formatTime12hr(
+      order.pickupTime
+    )}&#10;`;
+    body += `------------------------------&#10;`;
+    kitchenItems.forEach((item) => {
+      if (
+        item.kind === "menu" ||
+        item.kind === "soup" ||
+        item.kind === "coffee"
+      ) {
+        body += `x${item.qty}  ${esc(item.name)}&#10;`;
+        if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+      } else if (item.kind === "meatcheese") {
+        if (item.sliceStyle === "whole") {
+          body += `${esc(DeliCounter.wholePieceLabel(item.pieceCount))}  ${esc(
+            item.name
+          )}&#10;`;
+        } else {
+          body += `${esc(mcFmtLbs(item.weightLbs))} lb ${esc(
+            item.sliceStyleLabel || item.sliceStyle || ""
+          )}  ${esc(item.name)}&#10;`;
+        }
+        if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+      } else if (item.kind === "custom" || item.customType) {
+        body += `x${item.qty || 1}  Custom ${
+          item.customType === "panini" ? "Panini" : "Salad"
+        }&#10;`;
+        (item.selections || []).forEach((sel) => {
+          body += `   - ${esc(sel.item)}&#10;`;
+        });
+        if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+      } else {
+        body += `x${item.qty || 1}  ${esc(item.name)}&#10;`;
+        if (item.note) body += `   note: ${esc(item.note)}&#10;`;
+      }
+    });
+    body += `------------------------------&#10;`;
+    if (deliItems.length) {
+      body += `Deli meats & cheese print on the next ticket.&#10;`;
+    }
+    body += `Submitted: ${new Date(
+      order.submittedAt
+    ).toLocaleString()}&#10;&#10;`;
+    body += `</text>`;
+    body += `<cut type="feed"/>`;
+  }
+  if (deliItems.length) {
+    body += eposDeliTicketBody(Object.assign({}, order, { items: deliItems }));
+  }
+  return eposEnvelope(body);
 }
 function printOrderToPrinter(order, ip) {
   const xml = buildEposPrintXML(order);
@@ -1099,7 +1115,12 @@ function ordersMatchingView(list) {
   else if (ordersViewMode === "coffee")
     return source.filter((o) => o.channel !== "deliCounter" && orderHasCoffee(o));
   else if (ordersViewMode === "deli")
-    return source.filter((o) => o.channel === "deliCounter");
+    return source.filter(
+      (o) =>
+        o.channel === "deliCounter" ||
+        (typeof DeliCounter !== "undefined" &&
+          DeliCounter.deliItemsOf(o).length > 0)
+    );
   return source.slice();
 }
 function openOrdersDayModal(dateISO, filterMode) {
@@ -1119,7 +1140,11 @@ function openOrdersDayModal(dateISO, filterMode) {
 // order-level status for orders placed before this existed (no item.done
 // data at all yet), so nothing already in the system breaks.
 function orderStatus(o) {
-  if (o && o.channel === "deliCounter") {
+  if (
+    o &&
+    (o.channel === "deliCounter" ||
+      (typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(o)))
+  ) {
     if (o.deliStatus === "pickedUp") return "completed";
     if (o.deliStatus === "ready") return "partial";
     return "incomplete";
@@ -1141,7 +1166,11 @@ const ORDER_STATUS_LABEL = {
   incomplete: "Incomplete",
 };
 function orderPillLabel(o) {
-  if (o && (o.channel === "deliCounter" || o.payAtPickup)) {
+  if (
+    o &&
+    (o.channel === "deliCounter" ||
+      (typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(o)))
+  ) {
     if (o.deliStatus === "pickedUp") return "Deli · Picked Up";
     if (o.deliStatus === "ready") return "Deli · Ready";
     return "Deli · New";
@@ -1166,7 +1195,12 @@ function orderCardHTML(o) {
       <span class="pill">${orderPillLabel(o)}</span>
     </div>
     <div style="font-size:12.5px;color:var(--ink-soft)">${
-      o.channel === "deliCounter" || o.payAtPickup ? "Deli pickup · " : ""
+      typeof DeliCounter !== "undefined" && DeliCounter.isDeliPickupOrder(o)
+        ? "Deli pickup · "
+        : typeof DeliCounter !== "undefined" &&
+          DeliCounter.deliItemsOf(o).length
+        ? "Includes deli pickup · "
+        : ""
     }${escHtmlAttr(
       o.customerPhone
     )} · ${(o.items || []).length} item${
@@ -1187,9 +1221,13 @@ function orderItemLineHTML(item, dimmed, orderId, idx) {
   if (item.kind === "menu" || item.kind === "soup" || item.kind === "coffee") {
     content = `<div><strong>×${item.qty} ${escHtmlAttr(item.name)}</strong>${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
   } else if (item.kind === "meatcheese" || item.catalog === "counter") {
-    content = `<div><strong>${mcFmtLbs(item.weightLbs)} lb ${escHtmlAttr(
-      item.sliceStyleLabel || item.sliceStyle
-    )} — ${escHtmlAttr(item.name)}</strong>${
+    const amount =
+      item.sliceStyle === "whole" && typeof DeliCounter !== "undefined"
+        ? DeliCounter.wholePieceLabel(item.pieceCount)
+        : `${mcFmtLbs(item.weightLbs)} lb ${escHtmlAttr(
+            item.sliceStyleLabel || item.sliceStyle || ""
+          )}`;
+    content = `<div><strong>${amount} — ${escHtmlAttr(item.name)}</strong>${
       item.wholePieceBlockId ? ' <span style="font-size:11px;color:var(--terracotta)">(whole piece)</span>' : ""
     }${item.note ? `<br><span style="font-size:12px;color:var(--ink-soft)">Note: ${escHtmlAttr(item.note)}</span>` : ""}</div>`;
   } else if (item.kind === "custom" || item.customType) {
@@ -1214,9 +1252,59 @@ function toggleOrderItemDone(orderId, idx) {
     if (item.done) allocateMeatCheeseStock(item);
     else restoreMeatCheeseStock(item);
   }
+  if (
+    typeof DeliCounter !== "undefined" &&
+    DeliCounter.isCounterDeliLine(item)
+  ) {
+    applyCounterDeliStock(item, item.done);
+  }
   o.status = orderStatus(o) === "completed" ? "completed" : "incomplete";
   fsdb.collection("orders").doc(orderId).update({ items: o.items, status: o.status }).catch((err) => console.error("Update order item failed:", err));
   openOrderDetail(orderId);
+}
+function applyCounterDeliStock(item, take) {
+  if (
+    typeof DeliCounter === "undefined" ||
+    !DeliCounter.isCounterDeliLine(item) ||
+    item.sliceStyle === "whole"
+  )
+    return;
+  const cat =
+    typeof deliFind === "function" ? deliFind(item.itemId) : null;
+  if (!cat) return;
+  const weight = DeliCounter.normalizeLbs(item.weightLbs);
+  if (weight <= 0) return;
+  if (take) {
+    if (item.stockTakenLbs) return;
+    const next = DeliCounter.normalizeLbs(
+      Math.max(0, (Number(cat.lbsOnHand) || 0) - weight)
+    );
+    cat.lbsOnHand = next;
+    cat.inStock = DeliCounter.effectiveInStock(
+      DeliCounter.availabilityOf(cat),
+      next,
+      typeof deliThreshold === "function" ? deliThreshold() : 0.25
+    );
+    item.stockTakenLbs = weight;
+  } else if (item.stockTakenLbs) {
+    const next = DeliCounter.normalizeLbs(
+      (Number(cat.lbsOnHand) || 0) + item.stockTakenLbs
+    );
+    cat.lbsOnHand = next;
+    cat.inStock = DeliCounter.effectiveInStock(
+      DeliCounter.availabilityOf(cat),
+      next,
+      typeof deliThreshold === "function" ? deliThreshold() : 0.25
+    );
+    delete item.stockTakenLbs;
+  } else {
+    return;
+  }
+  if (typeof deliPersistItems === "function") {
+    deliPersistItems([
+      { id: cat.id, lbsOnHand: cat.lbsOnHand, inStock: cat.inStock },
+    ]).catch((err) => console.error("Update deli stock failed:", err));
+  }
 }
 function openOrderDetail(id) {
   const o = db.orders.find((x) => x.id === id);
@@ -1240,9 +1328,14 @@ function openOrderDetail(id) {
   const allScopeDone = scope.length > 0 && scope.every((i) => i.done);
   const itemsHTML = items
     .map((item, idx) => {
+      const isDeliLine =
+        typeof DeliCounter !== "undefined" &&
+        DeliCounter.isCounterDeliLine(item);
       const dim =
-        (ordersViewMode === "kitchen" && item.kind === "coffee") ||
-        (ordersViewMode === "coffee" && item.kind !== "coffee");
+        (ordersViewMode === "kitchen" &&
+          (item.kind === "coffee" || isDeliLine)) ||
+        (ordersViewMode === "coffee" && item.kind !== "coffee") ||
+        (ordersViewMode === "deli" && !isDeliLine);
       return orderItemLineHTML(item, dim, o.id, idx);
     })
     .join("");
@@ -1255,7 +1348,11 @@ function openOrderDetail(id) {
     o.submittedAt
   ).toLocaleString()}<br>Status: <strong>${
     ORDER_STATUS_LABEL[orderStatus(o)]
-  }</strong></p>
+  }</strong>${
+    typeof DeliCounter !== "undefined" && DeliCounter.deliItemsOf(o).length
+      ? "<br>Meats and cheeses are paid at pickup. Marking those lines done takes pounds off the online case."
+      : ""
+  }</p>
     <div class="search-panel-list" style="max-height:320px;margin:10px 0">
       ${itemsHTML || '<div class="search-panel-row">No items.</div>'}
     </div>
@@ -1273,8 +1370,13 @@ function openOrderDetail(id) {
 }
 function deleteOrder(id) {
   const existing = db.orders.find((o) => o.id === id);
-  if (existing && existing.channel === "deliCounter") {
-    alert("Deli pickup orders stay on record. Mark the order Picked Up instead of deleting it.");
+  if (
+    existing &&
+    (existing.channel === "deliCounter" ||
+      (typeof DeliCounter !== "undefined" &&
+        DeliCounter.deliItemsOf(existing).length))
+  ) {
+    alert("Deli pickup orders stay on record. Mark the order Picked Up, or mark the deli lines done, instead of deleting it.");
     return;
   }
   if (!confirm("Delete this order? This cannot be undone.")) return;
@@ -1303,7 +1405,15 @@ function toggleOrderCompletion(id) {
   if (!scope.length) return;
   const allDone = scope.every((i) => i.done);
   scope.forEach((i) => {
-    i.done = !allDone;
+    const nextDone = !allDone;
+    if (
+      typeof DeliCounter !== "undefined" &&
+      DeliCounter.isCounterDeliLine(i) &&
+      !!i.done !== nextDone
+    ) {
+      applyCounterDeliStock(i, nextDone);
+    }
+    i.done = nextDone;
   });
   // Keep the legacy order-level status roughly in sync too, in case
   // anything still reads it directly — the real UI always uses
@@ -2502,6 +2612,7 @@ function _renderPlaceOrderModal() {
       <button class="btn small outline" onclick="openCustomBuilderModal('panini')">+ Custom Panini</button>
       <button class="btn small outline" onclick="openCustomBuilderModal('salad')">+ Custom Salad</button>
       <button class="btn small outline" onclick="openCoffeeOrderModal(true)">+ Coffee Bar</button>
+      <button class="btn small outline" onclick="openMeatCheeseOrderPickerModal()">+ Meat &amp; Cheese</button>
     </div>
     <div class="search-panel-list" style="max-height:280px">
       ${
@@ -2565,10 +2676,14 @@ function _renderPlaceOrderModal() {
 function cartLineLabel(line) {
   if (line.kind === "menu" || line.kind === "soup" || line.kind === "coffee")
     return line.name;
-  if (line.kind === "meatcheese")
+  if (line.kind === "meatcheese") {
+    if (line.sliceStyle === "whole" && typeof DeliCounter !== "undefined") {
+      return `${DeliCounter.wholePieceLabel(line.pieceCount)} — ${line.name}`;
+    }
     return `${mcFmtLbs(line.weightLbs)} lb ${
       line.sliceStyleLabel || line.sliceStyle
     } — ${line.name}`;
+  }
   return `Custom ${line.customType === "panini" ? "Panini" : "Salad"} (${(
     line.selections || []
   )
@@ -2580,8 +2695,14 @@ function cartLineLabel(line) {
 // a whole-piece line, which is exactly one specific physical block), so
 // those lines show their weight as plain text instead of a qty input.
 function cartQtyCellHTML(line, i, onchangeFnName, qtyClass) {
-  if (line.kind === "meatcheese")
+  if (line.kind === "meatcheese") {
+    if (line.sliceStyle === "whole" && typeof DeliCounter !== "undefined") {
+      return `<span class="cart-mc-weight">${escHtml(
+        DeliCounter.wholePieceLabel(line.pieceCount)
+      )}</span>`;
+    }
     return `<span class="cart-mc-weight">${mcFmtLbs(line.weightLbs)} lb</span>`;
+  }
   return `<input type="number" min="1" value="${line.qty}"${
     qtyClass ? ` class="${qtyClass}"` : ""
   } onchange="${onchangeFnName}(${i},this.value)">`;
@@ -3144,12 +3265,129 @@ function addCustomToCart() {
   renderPublicCartWidget();
 }
 
+function cartHasCounterDeli() {
+  return (
+    typeof DeliCounter !== "undefined" &&
+    orderCart.some((line) => DeliCounter.isCounterDeliLine(line))
+  );
+}
+function cartHasKitchenItems() {
+  return orderCart.some(
+    (line) =>
+      typeof DeliCounter === "undefined" ||
+      !DeliCounter.isCounterDeliLine(line)
+  );
+}
+function checkoutTimeValue(raw) {
+  const match = String(raw || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return String(raw || "");
+  return String(match[1]).padStart(2, "0") + ":" + match[2];
+}
+function checkoutDeliTimes(dateISO, needsPaniniWindow) {
+  if (!dateISO || typeof DeliCounter === "undefined") return [];
+  const now = new Date();
+  const closed = db.closedDates || [];
+  const settings =
+    typeof deliRuntimeSettings === "function" ? deliRuntimeSettings() : {};
+  let times = DeliCounter.pickupTimes(dateISO, now, closed, settings);
+  if (needsPaniniWindow) {
+    const dow = new Date(dateISO + "T00:00").getDay();
+    if (dow !== 6) {
+      times = times.filter((time) => {
+        const [h, m] = time.split(":").map(Number);
+        const minutes = h * 60 + m;
+        return minutes >= 11 * 60 && minutes <= 14 * 60;
+      });
+    }
+  }
+  return times;
+}
+function checkoutDeliDates(weekMin, weekMax, deliOnly) {
+  if (typeof DeliCounter === "undefined") return [];
+  const now = new Date();
+  const closed = db.closedDates || [];
+  const settings =
+    typeof deliRuntimeSettings === "function" ? deliRuntimeSettings() : {};
+  let dates = DeliCounter.pickupDates(now, closed, 21, settings);
+  if (!deliOnly) dates = dates.filter((iso) => iso >= weekMin && iso <= weekMax);
+  return dates;
+}
+function updateOrderCheckoutTimes(dateISO) {
+  const sel = document.getElementById("ord-time");
+  if (!sel || sel.tagName !== "SELECT") return;
+  const needsPaniniWindow = orderCart.some(
+    (l) =>
+      l.kind === "custom" ||
+      l.kind === "soup" ||
+      (l.kind === "menu" && l.followsPaniniRules)
+  );
+  const times = checkoutDeliTimes(dateISO, needsPaniniWindow);
+  sel.innerHTML = times.length
+    ? times
+        .map(
+          (time) =>
+            `<option value="${time}">${escHtml(formatTime12hr(time))}</option>`
+        )
+        .join("")
+    : '<option value="">No times open</option>';
+}
 function openOrderCheckoutModal() {
   const monday = currentOrderWeekMonday();
   const weekMin = isoDate(monday);
   const weekMax = isoDate(addDays(monday, 6));
   const accounts = localCustomerSession ? loadCustomerAccounts() : {};
   const account = localCustomerSession ? accounts[localCustomerSession.phone] : null;
+  const hasDeli = cartHasCounterDeli();
+  const hasKitchen = cartHasKitchenItems();
+  const deliOnly = hasDeli && !hasKitchen;
+  const needsPaniniWindow = orderCart.some(
+    (l) =>
+      l.kind === "custom" ||
+      l.kind === "soup" ||
+      (l.kind === "menu" && l.followsPaniniRules)
+  );
+  let dateTimeHTML;
+  let hint = "";
+  if (hasDeli) {
+    hint = `<p class="mc-public-intro">Meats and cheeses are paid at the counter. ${escHtml(
+      typeof deliHoursCopy === "function"
+        ? deliHoursCopy()
+        : DeliCounter.HOURS_COPY
+    )}${
+      hasKitchen
+        ? " Pickup also has to fall in this menu week."
+        : ""
+    }</p>`;
+    const dates = checkoutDeliDates(weekMin, weekMax, deliOnly);
+    const date0 = dates[0] || "";
+    const times = checkoutDeliTimes(date0, needsPaniniWindow);
+    dateTimeHTML = `<div class="field"><label>Pickup Date</label><select id="ord-date" onchange="updateOrderCheckoutTimes(this.value)">${
+      dates.length
+        ? dates
+            .map(
+              (iso) =>
+                `<option value="${iso}">${iso}</option>`
+            )
+            .join("")
+        : '<option value="">No open days</option>'
+    }</select></div>
+    <div class="field"><label>Pickup Time</label><select id="ord-time">${
+      times.length
+        ? times
+            .map(
+              (time) =>
+                `<option value="${time}">${escHtml(
+                  formatTime12hr(time)
+                )}</option>`
+            )
+            .join("")
+        : '<option value="">No times open</option>'
+    }</select></div>
+    <div class="field"><label>Note for the counter (optional)</label><textarea id="ord-notes" maxlength="300"></textarea></div>`;
+  } else {
+    dateTimeHTML = `<div class="field"><label>Pickup Date</label><input type="date" id="ord-date" min="${weekMin}" max="${weekMax}"></div>
+    <div class="field"><label>Pickup Time</label><input type="time" id="ord-time"></div>`;
+  }
   openModal(`<h3>Checkout</h3>
     ${
       account
@@ -3158,14 +3396,14 @@ function openOrderCheckoutModal() {
           )}</p>`
         : ""
     }
+    ${hint}
     <div class="field"><label>Name</label><input type="text" id="ord-name" value="${
       account ? escHtmlAttr(account.name || "") : ""
     }"></div>
     <div class="field"><label>Phone</label><input type="tel" id="ord-phone" value="${
       localCustomerSession ? escHtmlAttr(localCustomerSession.phone) : ""
     }"></div>
-    <div class="field"><label>Pickup Date</label><input type="date" id="ord-date" min="${weekMin}" max="${weekMax}"></div>
-    <div class="field"><label>Pickup Time</label><input type="time" id="ord-time"></div>
+    ${dateTimeHTML}
     <div class="modal-actions">
       <button class="btn outline" onclick="renderPlaceOrderModal()">← Back to Cart</button>
       <button class="btn" id="place-order-btn" onclick="submitOrder('${weekMin}','${weekMax}')">Place Order</button>
@@ -3237,9 +3475,18 @@ function submitOrder(weekMin, weekMax) {
   const name = document.getElementById("ord-name").value.trim();
   const phone = document.getElementById("ord-phone").value.trim();
   const date = document.getElementById("ord-date").value;
-  const time = document.getElementById("ord-time").value;
+  const time = checkoutTimeValue(document.getElementById("ord-time").value);
+  const notesEl = document.getElementById("ord-notes");
+  const notes = notesEl ? notesEl.value.trim() : "";
   if (!name || !phone || !date || !time) {
     alert("Please fill in your name, phone, pickup date, and pickup time.");
+    return;
+  }
+  const hasDeli = cartHasCounterDeli();
+  const hasKitchen = cartHasKitchenItems();
+  const btn = document.getElementById("place-order-btn");
+  if (hasDeli && !hasKitchen) {
+    submitDeliOnlyFromCart({ name, phone, date, time, notes, btn });
     return;
   }
   if (date < weekMin || date > weekMax) {
@@ -3252,6 +3499,17 @@ function submitOrder(weekMin, weekMax) {
     alert(pickupError);
     return;
   }
+  if (hasDeli) {
+    const when = DeliCounter.validatePickup(date, time, {
+      now: new Date(),
+      closedDates: db.closedDates || [],
+      settings: typeof deliRuntimeSettings === "function" ? deliRuntimeSettings() : {},
+    });
+    if (when) {
+      alert(when);
+      return;
+    }
+  }
   const earlySoup = orderCart.find((l) => l.kind === "soup" && l.day && date < l.day);
   if (earlySoup) {
     const soupDate = new Date(earlySoup.day + "T00:00");
@@ -3261,6 +3519,10 @@ function submitOrder(weekMin, weekMax) {
   }
   const monday = currentOrderWeekMonday();
   const weekKey = weekKeyOf(monday);
+  if (hasDeli) {
+    submitMixedFromCart({ name, phone, date, time, notes, weekKey, btn });
+    return;
+  }
   const order = {
     customerName: name,
     customerPhone: phone,
@@ -3272,27 +3534,118 @@ function submitOrder(weekMin, weekMax) {
     submittedAt: new Date().toISOString(),
     autoprinted: false,
   };
-  const id = newId("o");
-  const btn = document.getElementById("place-order-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Placing Order…"; }
-  fsdb.collection("orders").doc(id).set(order).then(() => {
-    recordOrderLocally(name, phone, { id, ...order });
-    orderCart = [];
-    closeModal();
-    renderPublicCartWidget();
-    showOrderConfirmation();
-  }).catch((err) => {
-    console.error("Save order failed:", err);
-    alert("Something went wrong submitting your order — please check your connection and try again.");
-    if (btn) { btn.disabled = false; btn.textContent = "Place Order"; }
+  writePublicOrder(order, btn, {});
+}
+
+function deliBuildFromCart(name, phone, date, time, notes) {
+  return DeliCounter.buildOrder({
+    customerName: name,
+    customerPhone: phone,
+    pickupDate: date,
+    pickupTime: time,
+    notes: notes || "",
+    now: new Date(),
+    closedDates: db.closedDates || [],
+    threshold: typeof deliThreshold === "function" ? deliThreshold() : 0.25,
+    settings: typeof deliRuntimeSettings === "function" ? deliRuntimeSettings() : {},
+    itemsById: typeof deliItemsById === "function" ? deliItemsById() : {},
+    lines: orderCart
+      .filter((line) => DeliCounter.isCounterDeliLine(line))
+      .map((line) => ({
+        itemId: line.itemId,
+        weightLbs: line.weightLbs,
+        sliceStyle: line.sliceStyle,
+        pieceCount: line.pieceCount,
+        note: line.note,
+        lineId: newId("li"),
+      })),
   });
 }
 
-function showOrderConfirmation() {
+function submitDeliOnlyFromCart({ name, phone, date, time, notes, btn }) {
+  const built = deliBuildFromCart(name, phone, date, time, notes);
+  if (!built.ok) {
+    alert(built.error);
+    return;
+  }
+  const closureMessage = StoreClosures.closurePickupMessage(
+    built.order.pickupDate,
+    storeClosureRecords()
+  );
+  if (closureMessage) {
+    alert(closureMessage);
+    return;
+  }
+  writePublicOrder(built.order, btn, { payAtPickup: true });
+}
+
+function submitMixedFromCart({ name, phone, date, time, notes, weekKey, btn }) {
+  const built = deliBuildFromCart(name, phone, date, time, notes);
+  if (!built.ok) {
+    alert(built.error);
+    return;
+  }
+  const kitchenItems = orderCart
+    .filter((line) => !DeliCounter.isCounterDeliLine(line))
+    .map((line) => ({ lineId: newId("li"), ...line }));
+  const order = {
+    customerName: name,
+    customerPhone: phone,
+    pickupDate: date,
+    pickupTime: time,
+    weekKey,
+    items: built.order.items.concat(kitchenItems),
+    status: "incomplete",
+    submittedAt: new Date().toISOString(),
+    autoprinted: false,
+    notes: notes || "",
+    payAtPickup: true,
+    stockDecremented: false,
+  };
+  writePublicOrder(order, btn, { payAtPickup: true });
+}
+
+function writePublicOrder(order, btn, opts) {
+  const id = newId("o");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Placing Order…";
+  }
+  const finish = () => {
+    if (typeof recordOrderLocally === "function") {
+      recordOrderLocally(order.customerName, order.customerPhone, { id, ...order });
+    }
+    orderCart = [];
+    closeModal();
+    renderPublicCartWidget();
+    showOrderConfirmation(opts);
+  };
+  if (window.__deliPreview) {
+    db.orders = db.orders || [];
+    db.orders.push(Object.assign({ id }, order));
+    finish();
+    return;
+  }
+  fsdb.collection("orders").doc(id).set(order).then(finish).catch((err) => {
+    console.error("Save order failed:", err);
+    alert("Something went wrong submitting your order — please check your connection and try again.");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Place Order";
+    }
+  });
+}
+
+function showOrderConfirmation(opts) {
+  const payAtPickup = opts && opts.payAtPickup;
   openModal(`<div style="text-align:center;padding:10px 0">
     <div style="font-size:44px;margin-bottom:6px">🥗</div>
     <h3>Your Order's In!</h3>
-    <p style="color:var(--ink-soft)">Your order has been planted and is sprouting in our kitchen. We'll have it fresh and ready at your pickup time!</p>
+    <p style="color:var(--ink-soft)">${
+      payAtPickup
+        ? "We'll have it ready at your pickup time. Meats and cheeses are paid at the counter."
+        : "Your order has been planted and is sprouting in our kitchen. We'll have it fresh and ready at your pickup time!"
+    }</p>
     <div class="modal-actions" style="justify-content:center"><button class="btn" onclick="closeModal()">Sounds Good</button></div>
   </div>`);
   fireConfetti();

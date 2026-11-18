@@ -1,7 +1,6 @@
 /* Portal and public UI for deli counter ordering.
    The case grid stays in app.js. This file fills the public grouped list,
    the Manage catalog, Toast import, and the pickup order saved in `orders`. */
-var deliSlip = [];
 var deliDraft = null;
 var deliCheckout = null;
 var deliImportPending = null;
@@ -130,29 +129,61 @@ function deliTileHTML(item) {
     '<span class="mc-public-tile-sub">' + escHtml(deliPriceLabel(item)) + "</span></span></button>";
 }
 
-function deliGroupBlockHTML(label, items) {
-  if (!items.length) return "";
-  var head = label ? '<h3 class="mc-group-head">' + escHtml(label) + "</h3>" : "";
-  return head + items.map(deliTileHTML).join("");
+function deliGroupId(label) {
+  return typeof DeliCounter !== "undefined" && DeliCounter.sectionId
+    ? DeliCounter.sectionId(label)
+    : "deli-group-" + String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+var deliOpenGroup = "";
+
+function deliToggleGroup(id) {
+  deliCaptureDialog();
+  deliOpenGroup = DeliCounter.nextOpenSection(deliOpenGroup, id);
+  deliRenderOrderDialog();
+  var btn = document.getElementById(id + "-btn");
+  if (btn && typeof btn.focus === "function") btn.focus();
+}
+
+function deliAccordionHTML(grouped) {
+  var sections = DeliCounter.catalogSections(grouped);
+  if (!sections.length) return '<p class="empty-note">Nothing available right now.</p>';
+  return sections.map(function (section) {
+    var open = deliOpenGroup === section.id;
+    var panelId = section.id + "-panel";
+    var btnId = section.id + "-btn";
+    return '<div class="deli-accordion-section">' +
+      '<button type="button" class="deli-accordion-toggle" id="' + btnId + '"' +
+        ' aria-expanded="' + (open ? "true" : "false") + '"' +
+        ' aria-controls="' + panelId + '"' +
+        " onclick=\"deliToggleGroup('" + section.id + "')\">" +
+        '<span class="mc-group-head">' + escHtml(section.label) + "</span>" +
+      "</button>" +
+      '<div class="deli-accordion-panel" id="' + panelId + '" role="region" aria-labelledby="' + btnId + '"' +
+        (open ? "" : " hidden") + ">" +
+        section.items.map(deliTileHTML).join("") +
+      "</div></div>";
+  }).join("");
+}
+
+function isDeliCartLine(line) {
+  return typeof DeliCounter !== "undefined" && DeliCounter.isCounterDeliLine(line);
+}
+
+function deliCartLines() {
+  return (typeof orderCart !== "undefined" ? orderCart : []).filter(isDeliCartLine);
+}
+
+function deliClearCartLines() {
+  if (typeof orderCart === "undefined") return;
+  orderCart = orderCart.filter(function (line) { return !isDeliCartLine(line); });
 }
 
 function deliRenderSlip() {
   var el = document.getElementById("deli-slip");
   if (!el) return;
-  if (!deliSlip.length) {
-    el.innerHTML = "";
-    el.classList.add("hidden");
-    return;
-  }
-  el.classList.remove("hidden");
-  el.innerHTML = '<div class="deli-slip"><h3 class="mc-group-head">Your slip</h3>' +
-    deliSlip.map(function (line, index) {
-      var item = deliFind(line.itemId);
-      var name = item ? item.displayName || item.name : "Item";
-      return '<div class="deli-slip-line"><span>' + escHtml(deliAmountText(line) + " — " + name) +
-        "</span><button type=\"button\" class=\"btn small danger\" onclick=\"deliRemoveSlip(" + index + ")\">✕</button></div>";
-    }).join("") +
-    '<button type="button" class="btn" onclick="deliOpenCheckout()">Checkout · pay at pickup</button></div>';
+  el.innerHTML = "";
+  el.classList.add("hidden");
 }
 
 function deliRenderPublicLists() {
@@ -184,15 +215,17 @@ function deliRenderPublicLists() {
 }
 
 function deliRemoveSlip(index) {
+  if (typeof orderCart === "undefined" || !orderCart[index] || !isDeliCartLine(orderCart[index])) return;
   deliCaptureDialog();
-  deliSlip.splice(index, 1);
+  orderCart.splice(index, 1);
   deliRenderSlip();
-  if (document.getElementById("deli-editor") || document.querySelector(".deli-order-list")) deliRenderOrderDialog();
+  if (typeof renderPublicCartWidget === "function") renderPublicCartWidget();
+  if (document.getElementById("deli-editor") || document.querySelector("#modal-root .deli-order-list")) deliRenderOrderDialog();
 }
 
 function deliRequestedFor(itemId, extra) {
   var total = Number(extra) || 0;
-  deliSlip.forEach(function (line) {
+  deliCartLines().forEach(function (line) {
     if (line.itemId === itemId) total += Number(line.weightLbs) || 0;
   });
   return DeliCounter.normalizeLbs(total);
@@ -200,7 +233,7 @@ function deliRequestedFor(itemId, extra) {
 
 function deliSlipProblems() {
   var totals = {};
-  deliSlip.forEach(function (line) {
+  deliCartLines().forEach(function (line) {
     totals[line.itemId] = DeliCounter.normalizeLbs((totals[line.itemId] || 0) + (Number(line.weightLbs) || 0));
   });
   var problems = [];
@@ -309,7 +342,7 @@ function deliEditorHTML() {
     }).join("") + "</div></div>" +
     '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
     escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
-    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to order</button></div>";
+    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to Cart</button></div>";
 }
 
 function deliWholePieceEditorHTML(item, draft) {
@@ -327,28 +360,33 @@ function deliWholePieceEditorHTML(item, draft) {
     '<p class="mc-public-intro">Price is per pound. The final price is the weight of the piece, paid at pickup.</p>' +
     '<div class="field"><label>Note for this item</label><input type="text" id="deli-line-note" maxlength="140" value="' +
     escHtmlAttr(draft.note || "") + '" placeholder="Optional"></div>' +
-    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to order</button></div>";
+    '<button type="button" class="btn" id="deli-add-line" onclick="deliAddDraft()"' + (deliDraftCanAdd() ? "" : " disabled") + ">Add to Cart</button></div>";
 }
 
 function deliSummaryHTML() {
-  if (!deliSlip.length) return "";
+  var lines = deliCartLines();
+  if (!lines.length) return "";
   var problems = deliSlipProblems();
   var problemById = {};
   problems.forEach(function (problem) { problemById[problem.id] = problem.message; });
-  return '<div class="deli-slip"><h3 class="mc-group-head">Your order</h3>' +
-    deliSlip.map(function (line, index) {
+  var otherCount = (typeof orderCart !== "undefined" ? orderCart.length : lines.length) - lines.length;
+  return '<div class="deli-slip"><h3 class="mc-group-head">In your cart</h3>' +
+    lines.map(function (line) {
       var item = deliFind(line.itemId);
-      var name = item ? item.displayName || item.name : "Item";
+      var name = item ? item.displayName || item.name : line.name || "Item";
+      var index = typeof orderCart !== "undefined" ? orderCart.indexOf(line) : -1;
       var error = problemById[line.itemId]
         ? '<p class="deli-stock-error">' + escHtml(problemById[line.itemId]) + "</p>"
         : "";
       return '<div class="deli-slip-line"><span>' + escHtml(deliAmountText(line) + " — " + name) +
         '</span><button type="button" class="btn small danger" onclick="deliRemoveSlip(' + index + ')">✕</button></div>' + error;
-    }).join("") + "</div>";
+    }).join("") +
+    (otherCount > 0 ? '<p class="mc-public-intro">Plus ' + otherCount + " other item" + (otherCount === 1 ? "" : "s") + " already in your cart.</p>" : "") +
+    '<div class="modal-actions" style="justify-content:flex-start"><button type="button" class="btn" onclick="deliOpenCheckout()">View cart</button></div></div>';
 }
 
 function deliCheckoutHTML() {
-  if (!deliSlip.length) return "";
+  if (!deliCartLines().length) return "";
   deliEnsureCheckout();
   var state = deliCheckout;
   var now = new Date();
@@ -390,18 +428,11 @@ function deliRenderOrderDialog() {
   }
   deliEnsureCheckout();
   var grouped = DeliCounter.groupCatalog(db.meatCheeseItems || [], deliThreshold(), { publicOnly: true, settings: deliRuntimeSettings() });
-  var meatHtml = grouped.meats.map(function (group) {
-    return deliGroupBlockHTML(group.label, group.items);
-  }).join("");
-  var cheeseHtml = grouped.cheeses.length
-    ? '<h3 class="mc-group-head">Cheese</h3>' + grouped.cheeses.map(deliTileHTML).join("")
-    : "";
   openModal('<h3>Order Meat &amp; Cheese</h3>' +
-    '<p class="deli-next-hint">Tap an item to add it. Then choose how much, and your name and pickup time.</p>' +
+    '<p class="deli-next-hint">Tap a category to see what\'s in the case. Then tap an item to add it to your cart and choose how much and how it should be sliced.</p>' +
     deliEditorHTML() +
     deliSummaryHTML() +
-    deliCheckoutHTML() +
-    '<div class="mc-public-list deli-order-list">' + (meatHtml + cheeseHtml || '<p class="empty-note">Nothing available right now.</p>') + "</div>" +
+    '<div class="mc-public-list deli-order-list">' + deliAccordionHTML(grouped) + "</div>" +
     '<div class="modal-actions"><button class="btn outline" onclick="deliDraft=null;closeModal()">Close</button></div>');
   var editor = document.getElementById("deli-editor");
   if (editor && editor.scrollIntoView) editor.scrollIntoView({ block: "nearest" });
@@ -409,6 +440,7 @@ function deliRenderOrderDialog() {
 
 function deliOpenGroupedPicker() {
   deliDraft = null;
+  deliOpenGroup = "";
   deliEnsureCheckout();
   deliRenderOrderDialog();
 }
@@ -418,6 +450,11 @@ function deliOpenItem(id) {
   if (!item) return;
   deliCaptureDialog();
   deliEnsureCheckout();
+  deliOpenGroup = DeliCounter.sectionIdForItem(item, DeliCounter.groupCatalog(
+    db.meatCheeseItems || [],
+    deliThreshold(),
+    { publicOnly: true, settings: deliRuntimeSettings() }
+  ));
   var sameItem = deliDraft && deliDraft.itemId === id;
   if (DeliCounter.isWholePieceOnly(item)) {
     deliDraft = {
@@ -498,28 +535,52 @@ function deliAddDraft() {
   deliCaptureDialog();
   if (!deliDraft) return;
   if (!deliDraftCanAdd()) return;
-  if (deliSlip.length >= 8) {
+  if (deliCartLines().length >= 8) {
     alert("An online deli order can have up to 8 items. Call the store for a larger order.");
     return;
   }
+  if (typeof orderCart === "undefined") {
+    alert("The cart isn't ready yet. Refresh the page and try again.");
+    return;
+  }
   var adding = deliFind(deliDraft.itemId);
+  var note = String(deliDraft.note || "").trim();
+  var line;
   if (adding && DeliCounter.isWholePieceOnly(adding)) {
-    deliSlip.push({
+    line = {
+      kind: "meatcheese",
+      catalog: "counter",
       itemId: deliDraft.itemId,
-      pieceCount: Math.round(Number(deliDraft.pieceCount)),
+      name: adding.displayName || adding.name,
       weightLbs: 0,
       sliceStyle: "whole",
-      note: deliDraft.note || "",
-    });
+      sliceStyleLabel: "",
+      pieceCount: Math.round(Number(deliDraft.pieceCount)),
+      pricePerLb: DeliCounter.normalizePrice(adding.pricePerLb),
+      note: note,
+      qty: 1,
+    };
   } else {
-    deliSlip.push({
+    var style = DeliCounter.sliceStylesFor(adding).filter(function (entry) {
+      return entry.id === deliDraft.sliceStyle;
+    })[0];
+    if (!style) return;
+    line = {
+      kind: "meatcheese",
+      catalog: "counter",
       itemId: deliDraft.itemId,
+      name: adding.displayName || adding.name,
       weightLbs: Number(deliDraft.weightLbs),
-      sliceStyle: deliDraft.sliceStyle,
-      note: deliDraft.note || "",
-    });
+      sliceStyle: style.id,
+      sliceStyleLabel: style.label,
+      pricePerLb: DeliCounter.normalizePrice(adding.pricePerLb),
+      note: note,
+      qty: 1,
+    };
   }
+  orderCart.push(line);
   deliDraft = null;
+  if (typeof renderPublicCartWidget === "function") renderPublicCartWidget();
   deliRenderOrderDialog();
   deliRenderSlip();
 }
@@ -546,9 +607,10 @@ function deliCheckoutDate(iso) {
 }
 
 function deliOpenCheckout() {
-  if (!deliSlip.length) return;
-  deliEnsureCheckout();
-  deliRenderOrderDialog();
+  if (typeof orderCart === "undefined" || !orderCart.length) return;
+  deliDraft = null;
+  closeModal();
+  if (typeof openPlaceOrderModal === "function") openPlaceOrderModal();
 }
 
 function deliShowConfirmation(order) {
@@ -571,7 +633,7 @@ function deliSubmitOrder() {
     threshold: deliThreshold(),
     settings: deliRuntimeSettings(),
     itemsById: deliItemsById(),
-    lines: deliSlip.map(function (line) {
+    lines: deliCartLines().map(function (line) {
       return {
         itemId: line.itemId,
         weightLbs: line.weightLbs,
@@ -599,9 +661,10 @@ function deliSubmitOrder() {
   if (window.__deliPreview) {
     built.order.id = "preview-" + Date.now();
     db.orders.push(built.order);
-    deliSlip = [];
+    deliClearCartLines();
     deliShowConfirmation(built.order);
     deliRenderSlip();
+    if (typeof renderPublicCartWidget === "function") renderPublicCartWidget();
     return;
   }
   var id = newId("o");
@@ -614,7 +677,8 @@ function deliSubmitOrder() {
     if (typeof recordOrderLocally === "function") {
       recordOrderLocally(built.order.customerName, built.order.customerPhone, Object.assign({ id: id }, built.order));
     }
-    deliSlip = [];
+    deliClearCartLines();
+    if (typeof renderPublicCartWidget === "function") renderPublicCartWidget();
     deliShowConfirmation(built.order);
     deliRenderSlip();
   }).catch(function (err) {
