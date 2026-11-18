@@ -1109,13 +1109,37 @@ function seedAvailability(row) {
     return lines.join("\n");
   }
 
+  /* Counter-sliced meats and cheeses. Legacy meatcheese lines from the
+     block inventory path have no catalog:"counter" and stay kitchen lines. */
+  function isCounterDeliLine(item) {
+    return !!(item && item.catalog === "counter");
+  }
+
+  function deliItemsOf(order) {
+    return ((order && order.items) || []).filter(isCounterDeliLine);
+  }
+
+  function kitchenItemsOf(order) {
+    return ((order && order.items) || []).filter(function (item) {
+      return !isCounterDeliLine(item);
+    });
+  }
+
+  function isDeliOnlyItems(items) {
+    return items.length > 0 && items.every(isCounterDeliLine);
+  }
+
+  /* True only for an order the deli counter should handle as its own
+     ticket and status flow. A mixed cart (soup plus turkey, etc.) is
+     not a deli-only pickup even if it has payAtPickup set. */
   function isDeliPickupOrder(order) {
     if (!order) return false;
-    if (order.channel === "deliCounter" || order.payAtPickup === true) return true;
     var items = order.items || [];
-    return items.length > 0 && items.every(function (item) {
-      return item && (item.kind === "meatcheese" || item.catalog === "counter");
-    });
+    if (kitchenItemsOf(order).length && deliItemsOf(order).length) return false;
+    if (order.channel === "deliCounter") return true;
+    if (isDeliOnlyItems(items)) return true;
+    if (order.payAtPickup === true && items.length > 0 && !kitchenItemsOf(order).length) return true;
+    return false;
   }
 
   return {
@@ -1161,7 +1185,11 @@ function seedAvailability(row) {
     buildOrder: buildOrder,
     planPickupDecrement: planPickupDecrement,
     formatDeliTicket: formatDeliTicket,
+    isCounterDeliLine: isCounterDeliLine,
+    deliItemsOf: deliItemsOf,
+    kitchenItemsOf: kitchenItemsOf,
     isDeliPickupOrder: isDeliPickupOrder,
+    normalizePrice: normalizePrice,
     isoFromDate: isoFromDate,
   };
 })();

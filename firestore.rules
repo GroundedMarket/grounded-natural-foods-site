@@ -330,11 +330,99 @@ service cloud.firestore {
         && request.resource.data.items is list
         && deliLinesOk(request.resource.data.items);
     }
+    // A single checkout that mixes counter meats/cheeses with kitchen
+    // items (soup, coffee, weekly deli, etc.). Deli-only orders still
+    // go through validPublicDeliOrder; kitchen-only through
+    // validPublicKitchenOrder. Deli lines are first in `items`.
+    function itemIsCounterDeli(item) {
+      return item.keys().hasAny(['catalog']) && item.catalog == 'counter';
+    }
+    function mixedSlotOk(item, i) {
+      return (itemIsCounterDeli(item) && i < 8 && deliLineOk(item))
+        || !itemIsCounterDeli(item);
+    }
+    function mixedItemsOk(items) {
+      return items.size() >= 2
+        && items.size() <= 40
+        && deliLineOk(items[0])
+        && !itemIsCounterDeli(items[items.size() - 1])
+        && (items.size() < 2 || mixedSlotOk(items[1], 1))
+        && (items.size() < 3 || mixedSlotOk(items[2], 2))
+        && (items.size() < 4 || mixedSlotOk(items[3], 3))
+        && (items.size() < 5 || mixedSlotOk(items[4], 4))
+        && (items.size() < 6 || mixedSlotOk(items[5], 5))
+        && (items.size() < 7 || mixedSlotOk(items[6], 6))
+        && (items.size() < 8 || mixedSlotOk(items[7], 7))
+        && (items.size() < 9 || mixedSlotOk(items[8], 8))
+        && (items.size() < 10 || mixedSlotOk(items[9], 9))
+        && (items.size() < 11 || mixedSlotOk(items[10], 10))
+        && (items.size() < 12 || mixedSlotOk(items[11], 11))
+        && (items.size() < 13 || mixedSlotOk(items[12], 12))
+        && (items.size() < 14 || mixedSlotOk(items[13], 13))
+        && (items.size() < 15 || mixedSlotOk(items[14], 14))
+        && (items.size() < 16 || mixedSlotOk(items[15], 15))
+        && (items.size() < 17 || mixedSlotOk(items[16], 16))
+        && (items.size() < 18 || mixedSlotOk(items[17], 17))
+        && (items.size() < 19 || mixedSlotOk(items[18], 18))
+        && (items.size() < 20 || mixedSlotOk(items[19], 19))
+        && (items.size() < 21 || mixedSlotOk(items[20], 20))
+        && (items.size() < 22 || mixedSlotOk(items[21], 21))
+        && (items.size() < 23 || mixedSlotOk(items[22], 22))
+        && (items.size() < 24 || mixedSlotOk(items[23], 23))
+        && (items.size() < 25 || mixedSlotOk(items[24], 24))
+        && (items.size() < 26 || mixedSlotOk(items[25], 25))
+        && (items.size() < 27 || mixedSlotOk(items[26], 26))
+        && (items.size() < 28 || mixedSlotOk(items[27], 27))
+        && (items.size() < 29 || mixedSlotOk(items[28], 28))
+        && (items.size() < 30 || mixedSlotOk(items[29], 29))
+        && (items.size() < 31 || mixedSlotOk(items[30], 30))
+        && (items.size() < 32 || mixedSlotOk(items[31], 31))
+        && (items.size() < 33 || mixedSlotOk(items[32], 32))
+        && (items.size() < 34 || mixedSlotOk(items[33], 33))
+        && (items.size() < 35 || mixedSlotOk(items[34], 34))
+        && (items.size() < 36 || mixedSlotOk(items[35], 35))
+        && (items.size() < 37 || mixedSlotOk(items[36], 36))
+        && (items.size() < 38 || mixedSlotOk(items[37], 37))
+        && (items.size() < 39 || mixedSlotOk(items[38], 38))
+        && (items.size() < 40 || mixedSlotOk(items[39], 39));
+    }
+    function validPublicMixedOrder() {
+      return !request.resource.data.keys().hasAny(['channel', 'deliStatus', 'kind'])
+        && request.resource.data.keys().hasOnly([
+          'customerName', 'customerPhone', 'pickupDate', 'pickupTime', 'weekKey',
+          'items', 'status', 'submittedAt', 'autoprinted',
+          'notes', 'payAtPickup', 'stockDecremented'
+        ])
+        && request.resource.data.customerName is string
+        && request.resource.data.customerName.size() >= 2
+        && request.resource.data.customerName.size() <= 80
+        && request.resource.data.customerPhone is string
+        && request.resource.data.customerPhone.size() >= 10
+        && request.resource.data.customerPhone.size() <= 40
+        && request.resource.data.pickupDate is string
+        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.pickupTime is string
+        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
+        && request.resource.data.weekKey is string
+        && request.resource.data.weekKey.size() > 0
+        && request.resource.data.weekKey.size() <= 20
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 300
+        && request.resource.data.status == 'incomplete'
+        && request.resource.data.payAtPickup == true
+        && request.resource.data.stockDecremented == false
+        && request.resource.data.autoprinted == false
+        && request.resource.data.submittedAt is string
+        && request.resource.data.submittedAt.size() <= 40
+        && request.resource.data.items is list
+        && mixedItemsOk(request.resource.data.items);
+    }
     match /orders/{id}{
       allow create: if isStaff()
         || validPublicKitchenOrder()
         || validPublicChangeRequest()
-        || validPublicDeliOrder();
+        || validPublicDeliOrder()
+        || validPublicMixedOrder();
       allow get: if isStaff() || signedIn();
       allow list: if isStaff();
       allow update: if isStaff();

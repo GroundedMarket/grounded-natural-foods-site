@@ -769,7 +769,8 @@ body.dark-mode .mc-tile-filled.mc-cat-cheese{ background:linear-gradient(160deg,
 .mc-deli-icon{ width:28px; height:28px; flex-shrink:0; color:var(--terracotta); }
 .mc-public-tile.mc-cat-cheese .mc-deli-icon,
 .deli-case-card.mc-cat-cheese .mc-deli-icon{ color:var(--gold, #b8860b); }
-.deli-order-list{ margin-top:12px; max-height:320px; overflow:auto; }
+.deli-jump-row{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 4px; }
+.deli-order-list{ margin-top:8px; max-height:320px; overflow:auto; }
 .mc-group-head{ font-family:var(--font-hand, "Caveat", cursive); font-weight:500; font-size:28px; line-height:1; color:var(--terracotta); margin:14px 0 6px; transform:rotate(-1.2deg); border-bottom:1.5px dashed var(--brown-light); display:inline-block; }
 .mc-tile-online{ font-family:var(--font-hand, "Caveat", cursive); font-size:13px; line-height:1; color:var(--green-deep); }
 .mc-case-note{ font-family:var(--font-hand, "Caveat", cursive); font-size:20px; line-height:1.15; color:var(--ink-soft); margin:0 0 10px; }
