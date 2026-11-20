@@ -11,16 +11,39 @@ service cloud.firestore {
         || request.auth.token.role == 'employee'
         || request.auth.token.role == 'display');
     }
-    // Same people who run Turkeys: master, or an employee whose role
-    // contains "management". Kitchen can still work the case and orders.
-    function canEditOnlineDeli() {
-      return isMaster() || (
-        signedIn()
+    // An employee whose role contains "management". Floor, Kitchen, and
+    // Kitchen & Floor do not match. Master is a separate claim (isMaster).
+    function isManagement() {
+      return signedIn()
         && request.auth.token.role == 'employee'
         && request.auth.token.employeeId is string
         && exists(/databases/$(database)/documents/employees/$(request.auth.token.employeeId))
-        && get(/databases/$(database)/documents/employees/$(request.auth.token.employeeId)).data.role.matches('(?i).*management.*')
-      );
+        && get(/databases/$(database)/documents/employees/$(request.auth.token.employeeId)).data.role.matches('(?i).*management.*');
+    }
+    // Same people who run Turkeys: master, or management. Kitchen can still
+    // work the case and orders.
+    function canEditOnlineDeli() {
+      return isMaster() || isManagement();
+    }
+    // A general employee (or the display login) may only cross an expiration
+    // off or undo that. Existing items store the mark as `done`. crossedOff
+    // is the same mark; crossedOffBy / crossedOffAt record who and when.
+    // Older documents that only have `done` stay valid: this check looks at
+    // which keys changed, and does not require the newer keys to exist.
+    function expirationCrossOffOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'done', 'crossedOff', 'crossedOffBy', 'crossedOffAt'
+        ])
+        && (!request.resource.data.keys().hasAny(['done']) || request.resource.data.done is bool)
+        && (!request.resource.data.keys().hasAny(['crossedOff']) || request.resource.data.crossedOff is bool)
+        && (!request.resource.data.keys().hasAny(['crossedOffBy']) || (
+          request.resource.data.crossedOffBy is string
+          && request.resource.data.crossedOffBy.size() <= 80
+        ))
+        && (!request.resource.data.keys().hasAny(['crossedOffAt']) || (
+          request.resource.data.crossedOffAt is string
+          && request.resource.data.crossedOffAt.size() <= 40
+        ));
     }
     function deliHhmm(value) {
       return value is string && value.matches('^\\d{2}:\\d{2}$');
@@ -431,7 +454,16 @@ service cloud.firestore {
     }
 
     // ---- STAFF OPERATIONAL DATA: staff read/write ----
-    match /expirationItems/{id}  { allow read, write: if isStaff(); }
+    // Anyone on staff can read and add an expiration. Crossing it off (and
+    // undoing that) is the only change a general employee or the display
+    // login may make. Master and management still edit every field and
+    // delete. Floor and Kitchen do not match isManagement().
+    match /expirationItems/{id} {
+      allow read, create: if isStaff();
+      allow delete: if isMaster() || isManagement();
+      allow update: if isMaster() || isManagement();
+      allow update: if isStaff() && expirationCrossOffOnly();
+    }
     match /localUpcDb/{id}       { allow read, write: if isStaff(); }
     // "Site Edits" checklist (under Chat). Staff-wide at the rules level,
     // same bar as the rest of this block — the app's UI only ever shows
@@ -499,13 +531,6 @@ service cloud.firestore {
     // Master, and employees whose role contains "management", still add,
     // edit, and remove weights and mark a turkey picked up. No email or
     // text is sent from here. The display login cannot read names.
-    function isManagement() {
-      return signedIn()
-        && request.auth.token.role == 'employee'
-        && request.auth.token.employeeId is string
-        && exists(/databases/$(database)/documents/employees/$(request.auth.token.employeeId))
-        && get(/databases/$(database)/documents/employees/$(request.auth.token.employeeId)).data.role.matches('(?i).*management.*');
-    }
     function canManageTurkeys() {
       return isMaster() || isManagement();
     }
