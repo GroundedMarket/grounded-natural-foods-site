@@ -341,12 +341,42 @@ details[open] > summary::after{ transform:rotate(90deg); }
 .box-inactive{ opacity:0.55; }
 
 /* schedule grid */
-.week-box{ background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:var(--shadow); overflow-x:auto; }
+.week-box{ background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:var(--shadow); }
 .week-label{ font-family:var(--font-mono); font-size:12px; color:var(--brown-light); margin-bottom:10px; }
+/* Horizontal scroll lives on this wrapper, not the padded week box, so a
+   sticky name column pins to the grid edge instead of jumping into the
+   padding. The day headers stay in the scrolling grid, aligned with their
+   columns. The corner "Employee"/"Day" cell pins with the names. */
+.sched-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; }
 .sched-grid{ display:grid; grid-template-columns:150px repeat(6,1fr); min-width:760px; gap:2px; }
 .sched-grid.with-sun{ grid-template-columns:150px repeat(7,1fr); }
 .sched-head, .sched-name, .sched-cell{ background:var(--cream); padding:8px; border-radius:4px; font-size:12.5px; }
 .sched-head{ font-family:var(--font-mono); font-weight:600; text-align:center; background:var(--parchment); }
+.sched-grid > .sched-head:first-child,
+.sched-grid > .sched-name{
+  position:sticky;
+  left:0;
+  z-index:4;
+  background:var(--cream);
+}
+.sched-grid > .sched-head:first-child{
+  z-index:5;
+  background:var(--parchment);
+}
+.sched-grid > .sched-name.own-row{ background:var(--green-pale); }
+.sched-grid > .sched-name.open-available-name{ background:var(--paper); }
+.sched-role-label{
+  position:sticky;
+  left:0;
+  z-index:4;
+  display:inline-block;
+  max-width:100%;
+  background:var(--paper);
+}
+.sched-scroll.is-scrolled-x > .sched-grid > .sched-head:first-child,
+.sched-scroll.is-scrolled-x > .sched-grid > .sched-name{
+  box-shadow:1px 0 0 var(--line);
+}
 .sched-name{ display:flex; flex-direction:column; gap:1px; font-weight:600; justify-content:center; }
 .sched-name-row{ display:flex; align-items:center; gap:6px; }
 .sched-hours-label{ font-family:var(--font-mono); font-size:10px; font-weight:400; color:var(--brown-light); }
@@ -556,6 +586,13 @@ body.modal-open{ overflow:hidden; }
   body.printing-schedule #print-schedule-container{ display:block !important; padding:20px; }
   body.printing-schedule #print-schedule-container h2{ font-family:var(--font-display); margin-bottom:14px; }
   body.printing-schedule .sched-cell, body.printing-schedule .sched-name{ break-inside:avoid; }
+  body.printing-schedule .sched-scroll{ overflow:visible; }
+  body.printing-schedule .sched-grid > .sched-head:first-child,
+  body.printing-schedule .sched-grid > .sched-name,
+  body.printing-schedule .sched-role-label{
+    position:static;
+    box-shadow:none;
+  }
 }
 
 /* Order confirmation confetti — small emoji burst, purely decorative. */

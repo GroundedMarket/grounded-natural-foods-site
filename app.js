@@ -4907,7 +4907,7 @@ function buildExpirationCalHTML(monthKey) {
     const iso = isoDate(date);
     const dayItems = db.expirationItems.filter((i) => i.date === iso);
     const total = dayItems.length;
-    const doneCount = dayItems.filter((i) => i.done).length;
+    const doneCount = dayItems.filter((i) => expirationIsCrossedOff(i)).length;
     const notDoneCount = total - doneCount;
     const flaggedCount = dayItems.filter((i) => i.flagged).length;
     cells += `<div class="soup-cell">
@@ -4949,10 +4949,10 @@ function openExpDayModal(dateISO, filterMode) {
   let items = db.expirationItems.filter((i) => i.date === dateISO);
   let title = `Expiring ${dateISO}`;
   if (filterMode === "done") {
-    items = items.filter((i) => i.done);
+    items = items.filter((i) => expirationIsCrossedOff(i));
     title = `Checked Off — ${dateISO}`;
   } else if (filterMode === "notdone") {
-    items = items.filter((i) => !i.done);
+    items = items.filter((i) => !expirationIsCrossedOff(i));
     title = `Not Checked Off — ${dateISO}`;
   } else if (filterMode === "flagged") {
     items = items.filter((i) => i.flagged);
@@ -4989,7 +4989,7 @@ function openExpDayModal(dateISO, filterMode) {
             (i) =>
               `<div class="search-panel-row" style="display:block">${expItemRow(
                 i,
-                i.date < todayISO() && !i.done,
+                expirationOverdue(i),
                 true
               )}</div>`
           )
@@ -5004,7 +5004,7 @@ function openExpDayModal(dateISO, filterMode) {
 
 function categoryBoxHTML(cat) {
   const items = categoryItems(cat.id);
-  const overdue = items.filter((i) => i.date < todayISO() && !i.done);
+  const overdue = items.filter((i) => expirationOverdue(i));
   const offset = catDayOffset[cat.id] || 0;
   const viewDate = isoDate(addDays(new Date(), offset));
   const viewLabel =
@@ -5091,7 +5091,7 @@ function openCategorySearchModal(catId, term) {
                   (i) =>
                     `<div class="search-panel-row" style="display:block">${expItemRow(
                       i,
-                      i.date < todayISO() && !i.done,
+                      expirationOverdue(i),
                       true
                     )}</div>`
                 )
@@ -5109,33 +5109,55 @@ function openCategorySearchModal(catId, term) {
   }, 0);
 }
 
+// Master, or an employee whose role contains "management" — the same check
+// as Turkeys and the online deli. Floor and Kitchen are general employees.
+function canManageExpirations() {
+  if (!session) return false;
+  if (session.isMaster) return true;
+  const emp = db.employees.find((e) => e.id === session.employeeId);
+  return !!(emp && typeof emp.role === "string" && /management/i.test(emp.role));
+}
+// Existing items are marked done. crossedOff is the same mark, written
+// alongside done so a document that only has one of them still shows the
+// strikethrough everyone already sees.
+function expirationIsCrossedOff(item) {
+  return !!(item && (item.done || item.crossedOff));
+}
+function expirationOverdue(item) {
+  return !!(item && item.date < todayISO() && !expirationIsCrossedOff(item));
+}
 function expItemRow(item, overdue, showDate) {
+  const crossed = expirationIsCrossedOff(item);
   const classes = ["exp-item"];
-  if (item.done) classes.push("done");
-  if (overdue && !item.done) classes.push("overdue");
+  if (crossed) classes.push("done");
+  if (overdue && !crossed) classes.push("overdue");
   const flagSvg = `<svg class="flag-icon ${
     item.flagged ? "flag-on" : "flag-off"
   }" viewBox="0 0 24 24"><path d="M6 3v18h2v-7h9l-1.5-3.5L17 7H8V3z"/></svg>`;
   const dateLabel = showDate
     ? `<span class="exp-date-label">${item.date}</span>`
     : "";
+  const manage = canManageExpirations();
+  const editBtn = manage
+    ? `<button class="icon-edit-btn" title="Edit item" onclick="event.stopPropagation();openEditExpItem('${item.id}')">✎</button>`
+    : "";
+  const flagBtn = manage
+    ? `<button class="flag-btn" title="Markdown flag" onclick="toggleFlag('${item.id}')">${flagSvg}</button>`
+    : "";
   return `<div class="${classes.join(" ")}">
     <button class="link-chain" title="Search image" onclick="searchImage('${
       item.upc
     }','${escAttr(item.brand)}','${escAttr(item.description)}')">🔗</button>
-    <span class="exp-text" onclick="toggleDone('${
-      item.id
-    }')">${dateLabel}${expItemLabel(item)}</span>
-    <button class="icon-edit-btn" title="Edit item" onclick="event.stopPropagation();openEditExpItem('${
-      item.id
-    }')">✎</button>
-    <button class="flag-btn" title="Markdown flag" onclick="toggleFlag('${
-      item.id
-    }')">${flagSvg}</button>
+    <span class="exp-text" title="${
+      crossed ? "Put back on the list" : "Cross off"
+    }" onclick="toggleDone('${item.id}')">${dateLabel}${expItemLabel(item)}</span>
+    ${editBtn}
+    ${flagBtn}
   </div>`;
 }
 
 function openEditExpItem(id) {
+  if (!canManageExpirations()) return;
   const i = db.expirationItems.find((x) => x.id === id);
   aisleDraft = (i.aisles || []).slice();
   const hasMatch = db.categories.some((c) => c.id === i.categoryId);
@@ -5194,6 +5216,7 @@ function deleteExpItemDoc(id) {
     .catch((err) => console.error("Delete expiration item failed:", err));
 }
 function saveEditExpItem(id) {
+  if (!canManageExpirations()) return;
   const i = db.expirationItems.find((x) => x.id === id);
   i.brand = document.getElementById("eex-brand").value.trim() || i.brand;
   i.description =
@@ -5209,6 +5232,7 @@ function saveEditExpItem(id) {
   renderPortalBody();
 }
 function deleteExpItem(id) {
+  if (!canManageExpirations()) return;
   if (!confirm("Delete this expiration entry? This cannot be undone.")) return;
   db.expirationItems = db.expirationItems.filter((x) => x.id !== id);
   deleteExpItemDoc(id);
@@ -5216,12 +5240,30 @@ function deleteExpItem(id) {
   renderPortalBody();
 }
 
+function expirationActorName() {
+  if (!session) return "";
+  return session.isMaster ? "Master" : session.name || "";
+}
 function toggleDone(id) {
   const i = db.expirationItems.find((x) => x.id === id);
-  const wasDone = i.done;
-  i.done = !i.done;
-  if (!wasDone && i.done) recordEmployeeStat("checked");
-  saveExpItemDoc(i);
+  if (!i) return;
+  const wasDone = expirationIsCrossedOff(i);
+  const nowDone = !wasDone;
+  i.done = nowDone;
+  i.crossedOff = nowDone;
+  i.crossedOffBy = nowDone ? expirationActorName() : "";
+  i.crossedOffAt = nowDone ? new Date().toISOString() : "";
+  if (!wasDone && nowDone) recordEmployeeStat("checked");
+  fsdb
+    .collection("expirationItems")
+    .doc(i.id)
+    .update({
+      done: i.done,
+      crossedOff: i.crossedOff,
+      crossedOffBy: i.crossedOffBy,
+      crossedOffAt: i.crossedOffAt,
+    })
+    .catch((err) => console.error("Update expiration cross-off failed:", err));
   renderPortalBody();
 }
 function escAttr(s) {
@@ -5249,6 +5291,7 @@ function searchImage(upc, brand, desc) {
   window.open(`https://www.google.com/search?tbm=isch&q=${q}`, "_blank");
 }
 function toggleFlag(id) {
+  if (!canManageExpirations()) return;
   const item = db.expirationItems.find((x) => x.id === id);
   if (!item.flagged) {
     openModal(`<h3>Mark down: ${item.description}</h3><p>How much longer should this item run?</p>
@@ -5275,6 +5318,7 @@ function applyCustomMarkdown(id) {
   applyMarkdown(id, val);
 }
 function applyMarkdown(id, days) {
+  if (!canManageExpirations()) return;
   const item = db.expirationItems.find((x) => x.id === id);
   const base = new Date(item.date + "T00:00");
   item.date = isoDate(addDays(base, days));
@@ -5412,6 +5456,9 @@ function finishAddItem(upc, brand, desc, count, date, categoryId) {
     count,
     date,
     done: false,
+    crossedOff: false,
+    crossedOffBy: "",
+    crossedOffAt: "",
     flagged: false,
     aisles: aisleDraft.slice(),
     loggedDate: todayISO(),
@@ -5512,7 +5559,7 @@ function portalSearch() {
             (i) =>
               `<div class="card">${expItemRow(
                 i,
-                i.date < todayISO() && !i.done,
+                expirationOverdue(i),
                 true
               )}</div>`
           )
@@ -9589,7 +9636,7 @@ function openEmployeeDetail(id) {
     <div class="card">
       <h4>Typical Schedule</h4>
       <p style="font-size:12.5px;color:var(--ink-soft)">Click a day to set or clear this employee's usual hours. The 🪄 wand on the Scheduling tab fills a week from this.</p>
-      <div style="overflow-x:auto">${typicalScheduleGridHTML(e)}</div>
+      <div class="sched-scroll">${typicalScheduleGridHTML(e)}</div>
     </div>
     <div class="card">
       <h4>Items Added (last 12 months)</h4>
@@ -10964,7 +11011,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
   let rows = "";
   const closures = days.map((dk, i) => closureForScheduleDate(isoDate(addDays(monday, i))));
   roles.forEach((role) => {
-    rows += `<div class="sched-role-row">${role}</div>`;
+    rows += `<div class="sched-role-row"><span class="sched-role-label">${escHtml(role)}</span></div>`;
     db.employees.filter((e) => employeeShowsInWeek(e, weekKey) && e.role === role).forEach((emp) => {
       const canEditRow = session.isMaster || (!session.isMaster && session.employeeId === emp.id);
       const isSelf = !session.isMaster && session.employeeId === emp.id;
@@ -11035,7 +11082,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
     )
     .join("");
   return `<div class="week-box"><div class="week-label">${fmtWeekRange(monday)}</div>
-    <div class="${gridClass}">
+    <div class="sched-scroll"><div class="${gridClass}">
       <div class="sched-head"><span class="sched-head-date">Employee</span><div class="hhol" aria-hidden="true"></div></div>${days
         .map((d, i) => {
           const closure = closures[i];
@@ -11057,7 +11104,7 @@ function weekBoxHTML(weekKey, monday, hideHours) {
         .join("")}
       ${lanes}
       ${rows}
-    </div></div>`;
+    </div></div></div>`;
 }
 function placeClosureLanes() {
   document.querySelectorAll(".week-box .sched-grid").forEach((grid) => {
@@ -11208,7 +11255,7 @@ function availableShiftsRowHTML(weekKey, days, hideHours) {
   const open = openShiftsForWeek(weekKey).filter((s) => days.includes(s.dayKey));
   if (!open.length) return "";
   const monday = mondayFromWeekKey(weekKey);
-  let html = `<div class="sched-role-row">Open for pickup</div>`;
+  let html = `<div class="sched-role-row"><span class="sched-role-label">Open for pickup</span></div>`;
   html += `<div class="sched-name open-available-name"><span class="sched-open-tag">Available</span></div>`;
   days.forEach((dk, i) => {
     const dateISO = isoDate(addDays(monday, i));
@@ -12505,6 +12552,18 @@ initDarkMode();
 window.addEventListener("resize", () => {
   if (document.querySelector(".closure-art")) placeClosureLanes();
 });
+// Scroll events do not bubble. Capture marks a schedule scroller once its
+// name column is covering later days, so the hairline uses the existing
+// line color only then. The pinned cells themselves are CSS sticky.
+document.addEventListener(
+  "scroll",
+  (e) => {
+    const box = e.target;
+    if (!box || !box.classList || !box.classList.contains("sched-scroll")) return;
+    box.classList.toggle("is-scrolled-x", box.scrollLeft > 1);
+  },
+  true
+);
 renderPublic();
 showView("view-public");
 let bootDone = false;

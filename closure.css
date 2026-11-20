@@ -47,6 +47,16 @@
   z-index: 2;
 }
 
+/* Corner cell stays with the pinned name column. Day headers keep
+   position:relative above so they scroll with their columns. A solid
+   parchment fill keeps a holiday header from showing through. */
+.week-box .sched-grid > .sched-head:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--parchment);
+}
+
 .week-box .sched-grid > .sched-head .hhol {
   min-height: 1.2em;
   max-width: 100%;
@@ -63,11 +73,26 @@
   color: var(--gc-ink);
 }
 
-.week-box .sched-grid > .sched-name,
 .week-box .sched-grid > .sched-cell,
 .week-box .sched-grid > .sched-role-row {
   position: relative;
   z-index: 2;
+}
+
+/* Names sit above day cells and the closure art (z-index 1) so a scrolled
+   shift or holiday column cannot show through. Backgrounds are the same
+   cream / pale green / paper the grid already uses. */
+.week-box .sched-grid > .sched-name {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--cream);
+}
+.week-box .sched-grid > .sched-name.own-row {
+  background: var(--green-pale);
+}
+.week-box .sched-grid > .sched-name.open-available-name {
+  background: var(--paper);
 }
 
 .week-box .sched-grid > .closure-wash,
