@@ -25,25 +25,13 @@ service cloud.firestore {
     function canEditOnlineDeli() {
       return isMaster() || isManagement();
     }
-    // A general employee (or the display login) may only cross an expiration
-    // off or undo that. Existing items store the mark as `done`. crossedOff
-    // is the same mark; crossedOffBy / crossedOffAt record who and when.
-    // Older documents that only have `done` stay valid: this check looks at
-    // which keys changed, and does not require the newer keys to exist.
-    function expirationCrossOffOnly() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'done', 'crossedOff', 'crossedOffBy', 'crossedOffAt'
-        ])
-        && (!request.resource.data.keys().hasAny(['done']) || request.resource.data.done is bool)
-        && (!request.resource.data.keys().hasAny(['crossedOff']) || request.resource.data.crossedOff is bool)
-        && (!request.resource.data.keys().hasAny(['crossedOffBy']) || (
-          request.resource.data.crossedOffBy is string
-          && request.resource.data.crossedOffBy.size() <= 80
-        ))
-        && (!request.resource.data.keys().hasAny(['crossedOffAt']) || (
-          request.resource.data.crossedOffAt is string
-          && request.resource.data.crossedOffAt.size() <= 40
-        ));
+    // Expiration delete removes the document. The app does not soft-delete
+    // these items. This still refuses deleted: true on a general-employee
+    // update, which is how time off hides a record, so that path cannot be
+    // used here either. Master and management are not checked by this.
+    function expirationMarkedDeleted() {
+      return request.resource.data.keys().hasAny(['deleted'])
+        && request.resource.data.deleted == true;
     }
     function deliHhmm(value) {
       return value is string && value.matches('^\\d{2}:\\d{2}$');
@@ -454,15 +442,16 @@ service cloud.firestore {
     }
 
     // ---- STAFF OPERATIONAL DATA: staff read/write ----
-    // Anyone on staff can read and add an expiration. Crossing it off (and
-    // undoing that) is the only change a general employee or the display
-    // login may make. Master and management still edit every field and
-    // delete. Floor and Kitchen do not match isManagement().
+    // Any staff login can read, add, and edit an expiration: count, dates,
+    // the markdown flag, the cross-off, and the other fields on the item.
+    // Delete removes the document and stays with master and management.
+    // Floor and Kitchen do not match isManagement(). A general employee
+    // also cannot set deleted: true.
     match /expirationItems/{id} {
       allow read, create: if isStaff();
       allow delete: if isMaster() || isManagement();
       allow update: if isMaster() || isManagement();
-      allow update: if isStaff() && expirationCrossOffOnly();
+      allow update: if isStaff() && !expirationMarkedDeleted();
     }
     match /localUpcDb/{id}       { allow read, write: if isStaff(); }
     // "Site Edits" checklist (under Chat). Staff-wide at the rules level,
