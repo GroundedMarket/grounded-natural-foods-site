@@ -5137,13 +5137,6 @@ function expItemRow(item, overdue, showDate) {
   const dateLabel = showDate
     ? `<span class="exp-date-label">${item.date}</span>`
     : "";
-  const manage = canManageExpirations();
-  const editBtn = manage
-    ? `<button class="icon-edit-btn" title="Edit item" onclick="event.stopPropagation();openEditExpItem('${item.id}')">✎</button>`
-    : "";
-  const flagBtn = manage
-    ? `<button class="flag-btn" title="Markdown flag" onclick="toggleFlag('${item.id}')">${flagSvg}</button>`
-    : "";
   return `<div class="${classes.join(" ")}">
     <button class="link-chain" title="Search image" onclick="searchImage('${
       item.upc
@@ -5151,13 +5144,12 @@ function expItemRow(item, overdue, showDate) {
     <span class="exp-text" title="${
       crossed ? "Put back on the list" : "Cross off"
     }" onclick="toggleDone('${item.id}')">${dateLabel}${expItemLabel(item)}</span>
-    ${editBtn}
-    ${flagBtn}
+    <button class="icon-edit-btn" title="Edit item" onclick="event.stopPropagation();openEditExpItem('${item.id}')">✎</button>
+    <button class="flag-btn" title="Markdown flag" onclick="toggleFlag('${item.id}')">${flagSvg}</button>
   </div>`;
 }
 
 function openEditExpItem(id) {
-  if (!canManageExpirations()) return;
   const i = db.expirationItems.find((x) => x.id === id);
   aisleDraft = (i.aisles || []).slice();
   const hasMatch = db.categories.some((c) => c.id === i.categoryId);
@@ -5194,8 +5186,14 @@ function openEditExpItem(id) {
     <p style="font-size:11.5px;color:var(--ink-soft)">Logged ${
       i.loggedDate || "—"
     }${session.isMaster ? ` · Added by ${i.addedBy || "—"}` : ""}</p>
-    <div class="modal-actions" style="justify-content:space-between">
-      <button class="btn danger" onclick="deleteExpItem('${id}')">Delete</button>
+    <div class="modal-actions" style="justify-content:${
+      canManageExpirations() ? "space-between" : "flex-end"
+    }">
+      ${
+        canManageExpirations()
+          ? `<button class="btn danger" onclick="deleteExpItem('${id}')">Delete</button>`
+          : ""
+      }
       <button class="btn" onclick="saveEditExpItem('${id}')">Save</button>
     </div>`);
   renderAisleChips("eex");
@@ -5216,7 +5214,6 @@ function deleteExpItemDoc(id) {
     .catch((err) => console.error("Delete expiration item failed:", err));
 }
 function saveEditExpItem(id) {
-  if (!canManageExpirations()) return;
   const i = db.expirationItems.find((x) => x.id === id);
   i.brand = document.getElementById("eex-brand").value.trim() || i.brand;
   i.description =
@@ -5291,7 +5288,6 @@ function searchImage(upc, brand, desc) {
   window.open(`https://www.google.com/search?tbm=isch&q=${q}`, "_blank");
 }
 function toggleFlag(id) {
-  if (!canManageExpirations()) return;
   const item = db.expirationItems.find((x) => x.id === id);
   if (!item.flagged) {
     openModal(`<h3>Mark down: ${item.description}</h3><p>How much longer should this item run?</p>
@@ -5318,7 +5314,6 @@ function applyCustomMarkdown(id) {
   applyMarkdown(id, val);
 }
 function applyMarkdown(id, days) {
-  if (!canManageExpirations()) return;
   const item = db.expirationItems.find((x) => x.id === id);
   const base = new Date(item.date + "T00:00");
   item.date = isoDate(addDays(base, days));
