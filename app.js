@@ -1716,6 +1716,7 @@ function rebuildDeliWeeklyMenus(docs) {
       price: d.price || "",
       notes: d.notes || "",
       items: d.items || [],
+      itemOrder: d.itemOrder || null,
     };
   });
   db.weeklyMenus = nested;
@@ -2159,33 +2160,55 @@ function weeklyMenu(weekKey) {
   }
   return db.weeklyMenus[weekKey];
 }
+// Weekly `items` is the current order. `itemOrder` is an optional
+// id -> number map written by the ↑ / ↓ buttons. Ids missing from that
+// map stay where they already are, so a menu that has never been
+// reordered does not jump when this first loads.
+function orderedDeliMenuIds(data) {
+  const ids = (data && data.items) || [];
+  if (typeof MenuOrder === "undefined") return ids.slice();
+  return MenuOrder.orderMenuItemIds(ids, data && data.itemOrder);
+}
 // Saves one week+box's menu data to its own composite document — this is
 // the actual atomic unit of the deli menu now, so editing one box in one
 // week can never touch any other week or box.
 function saveDeliWeeklyMenuDoc(weekKey, boxId) {
   const data = weeklyMenu(weekKey)[boxId];
   if (!data) return;
+  // Local preview renders the editor without a staff login. Never write
+  // that fixture menu over the live one.
+  if (window.__deliPreview) return;
+  const payload = {
+    price: data.price,
+    notes: data.notes,
+    items: data.items,
+  };
+  if (data.itemOrder) payload.itemOrder = data.itemOrder;
   fsdb
     .collection("deliWeeklyMenus")
     .doc(`${weekKey}__${boxId}`)
-    .set({ price: data.price, notes: data.notes, items: data.items })
+    .set(payload)
     .catch((err) => console.error("Save deli menu failed:", err));
 }
 // When items are added/removed for a given week+box, every already-generated
-// future week mirrors that change. Past weeks are never touched.
+// future week mirrors that change. Past weeks are never touched. Item order
+// travels with the same copy so a reorder shows up next week too.
 function cascadeDeliChangeForward(weekKey, boxId) {
   const data = weeklyMenu(weekKey)[boxId];
   const items = data.items.slice();
   const price = data.price;
+  const itemOrder = data.itemOrder ? Object.assign({}, data.itemOrder) : null;
   Object.keys(db.weeklyMenus)
     .filter((k) => k > weekKey)
     .sort()
     .forEach((k) => {
-      if (db.weeklyMenus[k][boxId]) {
-        db.weeklyMenus[k][boxId].items = items.slice();
-        db.weeklyMenus[k][boxId].price = price;
-        saveDeliWeeklyMenuDoc(k, boxId);
-      }
+      const target = db.weeklyMenus[k][boxId];
+      if (!target) return;
+      target.items = items.slice();
+      target.price = price;
+      if (itemOrder) target.itemOrder = Object.assign({}, itemOrder);
+      else delete target.itemOrder;
+      saveDeliWeeklyMenuDoc(k, boxId);
     });
 }
 // Restores whatever's currently the admin-viewed week from the prior week's
@@ -2219,6 +2242,9 @@ function copyLastWeekDeliMenu() {
       notes: src.notes,
       items: src.items.slice(),
     };
+    if (src.itemOrder) {
+      db.weeklyMenus[weekKey][b.id].itemOrder = Object.assign({}, src.itemOrder);
+    }
     saveDeliWeeklyMenuDoc(weekKey, b.id);
     cascadeDeliChangeForward(weekKey, b.id);
   });
@@ -2333,7 +2359,7 @@ function renderLeadStory() {
       const data = menu[b.id];
       if (!data) return;
       const list = db.deliItemLists[b.id] || [];
-      data.items.forEach((id) => {
+      orderedDeliMenuIds(data).forEach((id) => {
         const item = list.find((l) => l.id === id);
         if (!item || item.soldOut) return;
         const priceLabel =
@@ -2421,7 +2447,7 @@ function renderDeliGrid(monday) {
     const data = menu[boxDef.id];
     const list = db.deliItemLists[boxDef.id] || [];
     if (!data) return "";
-    const items = data.items
+    const items = orderedDeliMenuIds(data)
       .map((id) => {
         const item = list.find((l) => l.id === id);
         if (!item) return "";
@@ -2625,7 +2651,7 @@ function _renderPlaceOrderModal() {
               !box.individualPricing && data.price ? ` — $${data.price}` : "";
             return (
               `<div style="padding:8px 4px 2px;font-weight:600;font-size:13px;color:var(--brown-light)">${box.title}${boxPrice}</div>` +
-              data.items
+              orderedDeliMenuIds(data)
                 .map((id) => {
                   const item = list.find((l) => l.id === id);
                   if (!item) return "";
@@ -5704,7 +5730,7 @@ function deliMenuAdminHTML() {
       todayOnclick: "deliAdminWeekOffset=0;renderPortalBody()",
       showToday: deliAdminWeekOffset !== 0,
     })}
-    <p style="font-size:12.5px;color:var(--ink-soft);margin:10px 0">Adding or removing an item from a week's menu automatically carries that change forward into every future week you've already generated. Past weeks are never changed.</p>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin:10px 0">Adding or removing an item from a week's menu automatically carries that change forward into every future week you've already generated. Past weeks are never changed. Use ↑ / ↓ on an item to change the order customers see — that order is saved the same way.</p>
     <div class="deli-grid">
       <div class="deli-col">${colA
         .map((b) => editorBox(weekKey, b.id))
@@ -5722,6 +5748,10 @@ function editorBox(weekKey, boxId) {
   if (!boxDef || !data) return "";
   const idx = db.deliBoxes.findIndex((b) => b.id === boxId);
   const indiv = !!boxDef.individualPricing;
+  const orderedIds = orderedDeliMenuIds(data);
+  const menuRows = orderedIds
+    .map((id) => ({ id, item: list.find((l) => l.id === id) }))
+    .filter((row) => row.item);
   return `<div class="card ${boxDef.active ? "" : "box-inactive"}">
       <h4>${boxDef.title}${boxDef.active ? "" : " (inactive)"} ${
     indiv
@@ -5738,10 +5768,10 @@ function editorBox(weekKey, boxId) {
           boxDef.followsPaniniRules ? "checked" : ""
         } onchange="togglePaniniRules('${boxId}',this.checked)"> Follows Custom Panini prep rules (11am-2pm Mon-Fri only, never Saturday)
       </label>
-      ${data.items
-        .map((id) => {
-          const item = list.find((l) => l.id === id);
-          if (!item) return "";
+      ${menuRows
+        .map((row, i) => {
+          const id = row.id;
+          const item = row.item;
           const priceInput = indiv
             ? `<span class="price">$<input type="text" style="width:50px" value="${
                 item.price || ""
@@ -5750,15 +5780,19 @@ function editorBox(weekKey, boxId) {
           const soldOutTag = item.soldOut
             ? ' <span style="color:var(--red-flag);font-size:11px;font-weight:700">SOLD OUT</span>'
             : "";
-          return `<div class="deli-item"><div class="deli-item-name">${
+          return `<div class="deli-item"><div class="deli-item-name" style="flex-wrap:wrap">${
             item.name
           }${soldOutTag} ${diettags(
             item
-          )} ${priceInput} <button class="btn small ${
+          )} ${priceInput} <button class="btn small outline" style="margin-left:auto" title="Move up" onclick="moveDeliMenuItem('${weekKey}','${boxId}','${id}',-1)" ${
+            i === 0 ? "disabled" : ""
+          }>↑</button> <button class="btn small outline" title="Move down" onclick="moveDeliMenuItem('${weekKey}','${boxId}','${id}',1)" ${
+            i === menuRows.length - 1 ? "disabled" : ""
+          }>↓</button> <button class="btn small ${
             item.soldOut ? "" : "outline"
           }" onclick="toggleDeliItemSoldOutInline('${boxId}','${id}')">${
             item.soldOut ? "Mark Available" : "Mark Sold Out"
-          }</button> <button class="btn small danger" style="margin-left:auto" onclick="removeMenuItem('${weekKey}','${boxId}','${id}')">Delete</button></div><div class="deli-item-desc">${
+          }</button> <button class="btn small danger" onclick="removeMenuItem('${weekKey}','${boxId}','${id}')">Delete</button></div><div class="deli-item-desc">${
             item.desc
           }</div></div>`;
         })
@@ -5819,6 +5853,29 @@ function updateDeliItemPrice(boxId, itemId, val) {
 // reordering employees/categories.
 function moveDeliBox(id, direction) {
   if (reorderList(db.deliBoxes, id, direction, "deliBoxes")) renderPortalBody();
+}
+// Same ↑ / ↓ step as boxes, categories, and the custom bar. The week's
+// item list is rewritten to the new order and itemOrder is saved on that
+// week's menu document, which master can already write.
+function moveDeliMenuItem(weekKey, boxId, itemId, direction) {
+  const data = weeklyMenu(weekKey)[boxId];
+  if (!data || typeof MenuOrder === "undefined") return;
+  const list = db.deliItemLists[boxId] || [];
+  const known = {};
+  list.forEach((item) => {
+    known[item.id] = true;
+  });
+  const ordered = orderedDeliMenuIds(data);
+  const visible = ordered.filter((id) => known[id]);
+  const dangling = ordered.filter((id) => !known[id]);
+  const nextVisible = MenuOrder.moveMenuItem(visible, itemId, direction);
+  if (!nextVisible) return;
+  const next = nextVisible.concat(dangling);
+  data.items = next;
+  data.itemOrder = MenuOrder.savedOrderMap(next);
+  saveDeliWeeklyMenuDoc(weekKey, boxId);
+  cascadeDeliChangeForward(weekKey, boxId);
+  renderPortalBody();
 }
 function updatePrice(weekKey, boxId, val) {
   weeklyMenu(weekKey)[boxId].price = val;
@@ -8793,7 +8850,7 @@ function publishingDeliPosterContentHTML() {
       const data = menu[b.id];
       const list = db.deliItemLists[b.id] || [];
       if (!data) return "";
-      const names = data.items
+      const names = orderedDeliMenuIds(data)
         .map((id) => list.find((l) => l.id === id))
         .filter((item) => item && !item.soldOut)
         .map((item) => escHtml(item.name));
