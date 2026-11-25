@@ -667,13 +667,12 @@ function deliSubmitOrder() {
     if (typeof renderPublicCartWidget === "function") renderPublicCartWidget();
     return;
   }
-  var id = newId("o");
   var btn = document.getElementById("deli-place-btn");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Placing order…";
   }
-  fsdb.collection("orders").doc(id).set(built.order).then(function () {
+  submitPublicOrderCallable(built.order).then(function (id) {
     if (typeof recordOrderLocally === "function") {
       recordOrderLocally(built.order.customerName, built.order.customerPhone, Object.assign({ id: id }, built.order));
     }
@@ -683,11 +682,7 @@ function deliSubmitOrder() {
     deliRenderSlip();
   }).catch(function (err) {
     console.error("Save deli order failed:", err);
-    var denied = err && (err.code === "permission-denied" || /permission-denied/i.test(String(err.message || err)));
-    var stockText = deliSlipProblems().map(function (problem) { return problem.name + ": " + problem.message; }).join(" ");
-    alert(denied
-      ? (stockText || "Sorry, we don't have enough to fill this order. Please lower a weight and try again.")
-      : "Something went wrong submitting your order — please check your connection and try again.");
+    alert(publicOrderErrorMessage(err));
     deliRenderOrderDialog();
     if (btn) {
       btn.disabled = false;

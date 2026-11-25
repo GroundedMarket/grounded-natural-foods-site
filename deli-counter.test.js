@@ -332,10 +332,6 @@ test("cheese cannot be shaved, and a shaved selection falls back to thin", () =>
   }));
   assert.equal(shavedMeat.ok, true);
   assert.equal(shavedMeat.order.items[0].sliceStyleLabel, "Shaved");
-  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
-  const line = rules.slice(rules.indexOf("function deliLineOk"), rules.indexOf("function deliLinesOk"));
-  assert.match(line, /category != 'cheese'/);
-  assert.match(line, /sliceStyle != 'shaved'/);
 });
 
 test("a deli pickup prints as a deli ticket, not a custom salad", () => {
@@ -546,22 +542,6 @@ test("each starter item has its own drawn icon, with a type fallback", () => {
   assert.equal(Icons.iconFor({ displayName: "Lemon Pepper", category: "meat" }).includes("circle"), true);
 });
 
-function rulesFunction(source, name) {
-  const marker = "function " + name;
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, name);
-  const open = source.indexOf("{", start);
-  let depth = 0;
-  for (let i = open; i < source.length; i++) {
-    if (source[i] === "{") depth++;
-    else if (source[i] === "}") {
-      depth--;
-      if (depth === 0) return source.slice(open, i + 1);
-    }
-  }
-  throw new Error("Unclosed rules function " + name);
-}
-
 test("pickup decrement is a staff write that can only lower pounds", () => {
   const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
   const block = rules.slice(rules.indexOf("match /meatCheeseItems/"), rules.indexOf("match /meatCheeseSlots/"));
@@ -572,20 +552,18 @@ test("pickup decrement is a staff write that can only lower pounds", () => {
   assert.match(block, /counterShape\(request\.resource\.data\)/);
 });
 
-test("a public deli order fetches only the line items and store/deliCounter", () => {
+test("public clients cannot create orders directly; staff and change requests still can", () => {
   const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
-  const body = ["deliMeatMin", "deliLineOk", "deliLinesOk", "validPublicDeliOrder"]
-    .map((name) => rulesFunction(rules, name))
-    .join("\n");
-  const paths = body.match(/documents\/[A-Za-z0-9_/{}$().]+/g) || [];
-  assert.ok(paths.length > 0);
-  paths.forEach((path) => {
-    assert.match(path, /^documents\/(meatCheeseItems\/|store\/deliCounter)/);
-  });
-  assert.equal(body.includes("employees/"), false);
-  assert.equal(body.includes("function canEditOnlineDeli"), false);
-  const distinct = new Set(paths.map((path) => path.split("/")[1]));
-  assert.deepEqual([...distinct].sort(), ["meatCheeseItems", "store"]);
+  const create = rules.slice(rules.indexOf("match /orders/{id}"), rules.indexOf("allow get:"));
+  assert.match(create, /allow create: if isStaff\(\) \|\| validPublicChangeRequest\(\);/);
+  assert.equal(create.includes("validPublicKitchenOrder"), false);
+  assert.equal(create.includes("validPublicDeliOrder"), false);
+  assert.equal(create.includes("validPublicMixedOrder"), false);
+  assert.equal(rules.includes("function validPublicKitchenOrder"), false);
+  assert.equal(rules.includes("function validPublicDeliOrder"), false);
+  assert.equal(rules.includes("function deliLineOk"), false);
+  assert.match(rules, /function validPublicChangeRequest/);
+  assert.match(rules, /submitPublicOrder/);
 });
 
 test("a mixed cart is not a deli-only pickup even with payAtPickup set", () => {
@@ -620,22 +598,6 @@ test("a mixed cart is not a deli-only pickup even with payAtPickup set", () => {
   assert.equal(ticket.includes("Tomato Bisque"), false);
 });
 
-test("public mixed orders are allowed alongside kitchen and deli-only writes", () => {
-  const rules = fs.readFileSync(path.join(__dirname, "firestore.rules"), "utf8");
-  assert.match(rules, /validPublicMixedOrder\(\)/);
-  assert.match(rules, /function validPublicMixedOrder/);
-  const body = ["deliLineOk", "mixedSlotOk", "mixedItemsOk", "validPublicMixedOrder"]
-    .map((name) => rulesFunction(rules, name))
-    .join("\n");
-  const paths = body.match(/documents\/[A-Za-z0-9_/{}$().]+/g) || [];
-  paths.forEach((path) => {
-    assert.match(path, /^documents\/(meatCheeseItems\/|store\/deliCounter)/);
-  });
-  const create = rules.slice(rules.indexOf("match /orders/{id}"), rules.indexOf("allow get:"));
-  assert.match(create, /validPublicKitchenOrder\(\)/);
-  assert.match(create, /validPublicDeliOrder\(\)/);
-  assert.match(create, /validPublicMixedOrder\(\)/);
-});
 
 test("the public popup lists only stocked category sections, one open at a time", () => {
   const grouped = DC.groupCatalog(catalog(), 0.25, { publicOnly: true });

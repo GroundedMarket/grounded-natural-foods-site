@@ -172,8 +172,8 @@ test("the menu editor arrows save order on the weekly menu masters already write
 
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
   assert.match(html, /menu-order\.js\?v=1/);
-  assert.match(html, /app\.js\?v=86/);
+  assert.match(html, /app\.js\?v=88/);
   const menuSrc = html.indexOf("menu-order.js");
-  const appSrc = html.indexOf("app.js?v=86");
+  const appSrc = html.indexOf("app.js?v=88");
   assert.ok(menuSrc > 0 && appSrc > menuSrc);
 });
