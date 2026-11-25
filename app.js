@@ -545,6 +545,54 @@ function bindOrdersCollection() {
     (err) => console.error("Orders listener failed:", err)
   );
 }
+// A staff tab left open keeps the app.js it loaded, and an old build still
+// prints a deli order as a custom salad. Every few minutes, compare the
+// script versions in this document with a fresh index.html and reload
+// once nobody is in the middle of something.
+function scriptVersionsIn(html) {
+  const versions = {};
+  const re = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  let match;
+  const source = String(html || "");
+  while ((match = re.exec(source))) {
+    const src = match[1];
+    const queryAt = src.indexOf("?");
+    if (queryAt < 0) continue;
+    const version = /^v=(\d+)$/.exec(src.slice(queryAt + 1));
+    if (!version) continue;
+    const file = src.slice(0, queryAt).split("/").pop();
+    if (!file || !/\.js$/i.test(file)) continue;
+    versions[file] = version[1];
+  }
+  return versions;
+}
+function staleTabIsIdle() {
+  if (typeof orderCart !== "undefined" && orderCart && orderCart.length) return false;
+  const modal = document.getElementById("modal-root");
+  if (modal && modal.innerHTML.trim()) return false;
+  const active = document.activeElement;
+  if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return false;
+  return true;
+}
+function reloadIfNewBuild() {
+  if (!staleTabIsIdle()) return;
+  fetch("index.html", { cache: "no-store" })
+    .then((res) => (res.ok ? res.text() : ""))
+    .then((html) => {
+      if (!html || !staleTabIsIdle()) return;
+      const latest = scriptVersionsIn(html);
+      if (!latest["app.js"]) return;
+      const loaded = scriptVersionsIn(document.documentElement.outerHTML);
+      const files = Object.keys(latest).concat(Object.keys(loaded));
+      for (let i = 0; i < files.length; i++) {
+        if (latest[files[i]] !== loaded[files[i]]) {
+          location.reload();
+          return;
+        }
+      }
+    })
+    .catch((err) => console.error("Build check failed:", err));
+}
 // Same "added since page load" pattern as bindOrdersCollection above — needed
 // so a genuinely new chat message/event/poll can trigger an in-app
 // notification, without also firing for the initial batch on page load, or
@@ -1824,6 +1872,7 @@ function initFirebaseSync() {
     db.customBarItems = arr;
   });
   bindOrdersCollection();
+  setInterval(reloadIfNewBuild, 5 * 60 * 1000);
   bindRecordCollection("shiftSwaps", (arr) => {
     db.shiftSwaps = arr;
   });

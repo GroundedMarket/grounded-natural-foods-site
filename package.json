@@ -4,7 +4,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "test": "node --test store-closures.test.js deli-counter.test.js expirations.test.js menu-order.test.js functions/public-order.test.js"
+    "test": "node --test store-closures.test.js deli-counter.test.js expirations.test.js menu-order.test.js functions/public-order.test.js stale-build.test.js"
   },
   "dependencies": {
     "escpos": "^3.0.0-alpha.6",
