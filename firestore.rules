@@ -51,18 +51,6 @@ service cloud.firestore {
         && (!data.keys().hasAny(['counterCloseWeekday']) || deliHhmm(data.counterCloseWeekday))
         && (!data.keys().hasAny(['hoursCopy']) || (data.hoursCopy is string && data.hoursCopy.size() > 0 && data.hoursCopy.size() <= 500));
     }
-    // Meat minimum lives on store/deliCounter. Missing or out of range falls
-    // back to 1/4 lb, which is what the deployed rule already required.
-    function deliMeatMin() {
-      return exists(/databases/$(database)/documents/store/deliCounter)
-        && get(/databases/$(database)/documents/store/deliCounter).data.keys().hasAny(['meatMinLbs'])
-        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs is number
-        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs > 0
-        && get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs <= 5
-        ? get(/databases/$(database)/documents/store/deliCounter).data.meatMinLbs
-        : 0.25;
-    }
-
     // ---- PUBLIC MENU DATA: anyone on the site (incl. silent anonymous
     //      customers) can read; only master can change ----
     match /deliBoxes/{id}        { allow read: if signedIn(); allow write: if isMaster(); }
@@ -175,49 +163,28 @@ service cloud.firestore {
     // not just hidden in the UI.
     match /meatCheeseBlocks/{id} { allow read, write: if isStaff(); }
 
-    // ---- ORDERS: the one narrow public door. Any signed-in visitor
-    //      (anonymous customers included) may CREATE an order.
-    //      Read is split into two different things on purpose:
-    //        - get (fetching ONE specific order by its exact document ID)
-    //          is open to any signed-in visitor. This is what lets a
-    //          customer's own browser refresh the live status of an order
-    //          it already placed (the ID was handed back at checkout and
-    //          saved on their device) — but it's useless for anyone who
-    //          doesn't already have that exact ID, since IDs aren't
-    //          sequential or guessable in practice.
-    //        - list (querying/enumerating the whole collection) stays
-    //          staff-only, exactly as before, so nobody can just browse or
-    //          search every order ever placed.
-    //      This intentionally avoids scoping by phone number or any other
-    //      guessable value — the document ID itself is the only thing that
-    //      grants access, and only staff can ever discover IDs in bulk.
-    //      Update/delete remain staff-only. ----
-    function validPublicKitchenOrder() {
-      return !request.resource.data.keys().hasAny(['channel', 'deliStatus', 'kind'])
-        && request.resource.data.keys().hasOnly([
-          'customerName', 'customerPhone', 'pickupDate', 'pickupTime', 'weekKey',
-          'items', 'status', 'submittedAt', 'autoprinted'
-        ])
-        && request.resource.data.customerName is string
-        && request.resource.data.customerName.size() >= 1
-        && request.resource.data.customerName.size() <= 80
-        && request.resource.data.customerPhone is string
-        && request.resource.data.customerPhone.size() >= 1
-        && request.resource.data.customerPhone.size() <= 40
-        && request.resource.data.pickupDate is string
-        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
-        && request.resource.data.pickupTime is string
-        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
-        && request.resource.data.weekKey is string
-        && request.resource.data.weekKey.size() <= 20
-        && request.resource.data.status == 'incomplete'
-        && request.resource.data.autoprinted == false
-        && request.resource.data.items is list
-        && request.resource.data.items.size() > 0
-        && request.resource.data.items.size() <= 40
-        && request.resource.data.submittedAt is string
-        && request.resource.data.submittedAt.size() <= 40;
-    }
+    // ---- ORDERS ----
+    // Public kitchen, deli, and mixed orders are created by the
+    // submitPublicOrder Cloud Function. That function checks each deli
+    // line against meatCheeseItems, then writes with the Admin SDK.
+    // A browser cannot create those orders. Staff still can. A customer
+    // change request is still a direct create; it does not change the
+    // original order until staff approve it.
+    // Read is split into two different things on purpose:
+    //   - get (fetching ONE specific order by its exact document ID)
+    //     is open to any signed-in visitor. This is what lets a
+    //     customer's own browser refresh the live status of an order
+    //     it already placed (the ID was handed back at checkout and
+    //     saved on their device) — but it's useless for anyone who
+    //     doesn't already have that exact ID, since IDs aren't
+    //     sequential or guessable in practice.
+    //   - list (querying/enumerating the whole collection) stays
+    //     staff-only, exactly as before, so nobody can just browse or
+    //     search every order ever placed.
+    // This intentionally avoids scoping by phone number or any other
+    // guessable value — the document ID itself is the only thing that
+    // grants access, and only staff can ever discover IDs in bulk.
+    // Update/delete remain staff-only.
     function validPublicChangeRequest() {
       return request.resource.data.kind == 'changeRequest'
         && request.resource.data.keys().hasOnly([
@@ -236,135 +203,8 @@ service cloud.firestore {
         && request.resource.data.staffComment == ''
         && request.resource.data.submittedAt is string;
     }
-    function catalogIsWholePiece(data) {
-      return data.wholePieceOnly == true
-        || (
-          !data.keys().hasAny(['wholePieceOnly'])
-          && data.toastName in [
-            'Ham Spiral Sliced',
-            'Classic Roast Turkey Brst',
-            'Classic Rst Turkey Breast',
-            'Turkey Carved and Served Oven Roastd'
-          ]
-        );
-    }
-    // Stopgap (Nov 25, 2026): Firestore stops a rules check at 1,000
-    // evaluated expressions. The old per-line catalog check cost ~300, so
-    // any order with 3+ meats/cheeses, or any cart mixing deli with kitchen
-    // items, was refused. This checks the line's shape only. The site
-    // still checks stock, price, slice, and minimums before it saves
-    // (DeliCounter.buildOrder), and staff confirm at the counter.
-    function deliLineOk(item) {
-      return item.keys().size() <= 12
-        && [item.kind, item.catalog, item.qty] == ['meatcheese', 'counter', 1]
-        && item.itemId is string
-        && item.weightLbs is number;
-    }
-    function deliLinesOk(items) {
-      return items.size() >= 1
-        && items.size() <= 8
-        && deliLineOk(items[0])
-        && (items.size() < 2 || deliLineOk(items[1]))
-        && (items.size() < 3 || deliLineOk(items[2]))
-        && (items.size() < 4 || deliLineOk(items[3]))
-        && (items.size() < 5 || deliLineOk(items[4]))
-        && (items.size() < 6 || deliLineOk(items[5]))
-        && (items.size() < 7 || deliLineOk(items[6]))
-        && (items.size() < 8 || deliLineOk(items[7]));
-    }
-    function validPublicDeliOrder() {
-      return request.resource.data.channel == 'deliCounter'
-        && request.resource.data.keys().hasOnly([
-          'channel', 'customerName', 'customerPhone', 'pickupDate', 'pickupTime',
-          'notes', 'items', 'deliStatus', 'status', 'payAtPickup', 'stockDecremented',
-          'submittedAt', 'autoprinted', 'weekKey'
-        ])
-        && request.resource.data.customerName is string
-        && request.resource.data.customerName.size() >= 2
-        && request.resource.data.customerName.size() <= 80
-        && request.resource.data.customerPhone is string
-        && request.resource.data.customerPhone.size() >= 10
-        && request.resource.data.customerPhone.size() <= 40
-        && request.resource.data.pickupDate is string
-        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
-        && request.resource.data.pickupTime is string
-        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
-        && request.resource.data.notes is string
-        && request.resource.data.notes.size() <= 300
-        && request.resource.data.deliStatus == 'new'
-        && request.resource.data.status == 'incomplete'
-        && request.resource.data.payAtPickup == true
-        && request.resource.data.stockDecremented == false
-        && request.resource.data.autoprinted == false
-        && request.resource.data.weekKey == ''
-        && request.resource.data.submittedAt is string
-        && request.resource.data.submittedAt.size() <= 40
-        && request.resource.data.items is list
-        && deliLinesOk(request.resource.data.items);
-    }
-    // A single checkout that mixes counter meats/cheeses with kitchen
-    // items (soup, coffee, weekly deli, etc.). Deli-only orders still
-    // go through validPublicDeliOrder; kitchen-only through
-    // validPublicKitchenOrder. Deli lines are first in `items`.
-    function itemIsCounterDeli(item) {
-      return item.get('catalog', '') == 'counter';
-    }
-    // Deli lines come first (at most 8), and the last item is a kitchen
-    // item. Slots past 7 are not walked one by one: that walk alone cost
-    // ~400 expressions. Kitchen items have never been validated per line.
-    function mixedSlotOk(item) {
-      return !itemIsCounterDeli(item) || deliLineOk(item);
-    }
-    function mixedItemsOk(items) {
-      return items.size() >= 2
-        && items.size() <= 40
-        && deliLineOk(items[0])
-        && !itemIsCounterDeli(items[items.size() - 1])
-        && (items.size() < 2 || mixedSlotOk(items[1]))
-        && (items.size() < 3 || mixedSlotOk(items[2]))
-        && (items.size() < 4 || mixedSlotOk(items[3]))
-        && (items.size() < 5 || mixedSlotOk(items[4]))
-        && (items.size() < 6 || mixedSlotOk(items[5]))
-        && (items.size() < 7 || mixedSlotOk(items[6]))
-        && (items.size() < 8 || mixedSlotOk(items[7]));
-    }
-    function validPublicMixedOrder() {
-      return !request.resource.data.keys().hasAny(['channel', 'deliStatus', 'kind'])
-        && request.resource.data.keys().hasOnly([
-          'customerName', 'customerPhone', 'pickupDate', 'pickupTime', 'weekKey',
-          'items', 'status', 'submittedAt', 'autoprinted',
-          'notes', 'payAtPickup', 'stockDecremented'
-        ])
-        && request.resource.data.customerName is string
-        && request.resource.data.customerName.size() >= 2
-        && request.resource.data.customerName.size() <= 80
-        && request.resource.data.customerPhone is string
-        && request.resource.data.customerPhone.size() >= 10
-        && request.resource.data.customerPhone.size() <= 40
-        && request.resource.data.pickupDate is string
-        && request.resource.data.pickupDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
-        && request.resource.data.pickupTime is string
-        && request.resource.data.pickupTime.matches('^\\d{2}:\\d{2}$')
-        && request.resource.data.weekKey is string
-        && request.resource.data.weekKey.size() > 0
-        && request.resource.data.weekKey.size() <= 20
-        && request.resource.data.notes is string
-        && request.resource.data.notes.size() <= 300
-        && request.resource.data.status == 'incomplete'
-        && request.resource.data.payAtPickup == true
-        && request.resource.data.stockDecremented == false
-        && request.resource.data.autoprinted == false
-        && request.resource.data.submittedAt is string
-        && request.resource.data.submittedAt.size() <= 40
-        && request.resource.data.items is list
-        && mixedItemsOk(request.resource.data.items);
-    }
     match /orders/{id}{
-      allow create: if isStaff()
-        || validPublicKitchenOrder()
-        || validPublicChangeRequest()
-        || validPublicDeliOrder()
-        || validPublicMixedOrder();
+      allow create: if isStaff() || validPublicChangeRequest();
       allow get: if isStaff() || signedIn();
       allow list: if isStaff();
       allow update: if isStaff();

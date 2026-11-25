@@ -3631,13 +3631,35 @@ function submitMixedFromCart({ name, phone, date, time, notes, weekKey, btn }) {
   writePublicOrder(order, btn, { payAtPickup: true });
 }
 
+function publicOrderErrorMessage(err) {
+  const code = String((err && err.code) || "");
+  let message = String((err && err.message) || "").trim();
+  if (!/failed-precondition|invalid-argument/.test(code)) {
+    return "Something went wrong submitting your order — please check your connection and try again.";
+  }
+  message = message.replace(
+    /^(?:FirebaseError:\s*)?(?:functions\/)?(?:failed-precondition|invalid-argument):\s*/i,
+    ""
+  );
+  return message || "We couldn't place that order. Please check the items and try again.";
+}
+
+function submitPublicOrderCallable(order) {
+  const call = () => fbfunctions.httpsCallable("submitPublicOrder")({ order });
+  const ready = fbauth.currentUser ? Promise.resolve() : fbauth.signInAnonymously();
+  return ready.then(call).then((res) => {
+    const id = res && res.data && res.data.id;
+    if (!id) throw new Error("The order was not saved.");
+    return id;
+  });
+}
+
 function writePublicOrder(order, btn, opts) {
-  const id = newId("o");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Placing Order…";
   }
-  const finish = () => {
+  const finish = (id) => {
     if (typeof recordOrderLocally === "function") {
       recordOrderLocally(order.customerName, order.customerPhone, { id, ...order });
     }
@@ -3647,14 +3669,15 @@ function writePublicOrder(order, btn, opts) {
     showOrderConfirmation(opts);
   };
   if (window.__deliPreview) {
+    const id = newId("o");
     db.orders = db.orders || [];
     db.orders.push(Object.assign({ id }, order));
-    finish();
+    finish(id);
     return;
   }
-  fsdb.collection("orders").doc(id).set(order).then(finish).catch((err) => {
+  submitPublicOrderCallable(order).then(finish).catch((err) => {
     console.error("Save order failed:", err);
-    alert("Something went wrong submitting your order — please check your connection and try again.");
+    alert(publicOrderErrorMessage(err));
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Place Order";
@@ -4226,10 +4249,10 @@ function localOrderCardHTML(order) {
    ORDER CHANGE REQUESTS — a customer proposes adding/removing items (or a
    free-text note, e.g. "please cancel this order") on an order that
    hasn't been picked up yet. Submitted as a document in the SAME `orders`
-   collection real orders live in (already writable by any signed-in
-   visitor — that's how guest checkout already works), tagged
-   kind:"changeRequest" so staff review it and apply it by hand instead of
-   it ever being auto-applied. This needs zero Firestore rule changes.
+   collection real orders live in, tagged kind:"changeRequest" so staff
+   review it and apply it by hand instead of it ever being auto-applied.
+   Checkout itself goes through submitPublicOrder. A change request is
+   still a direct create, and it still needs no further rule change.
    Staff approving/denying is a mirror of Time Off / Shift Swap requests.
    Note: since a customer's browser can never read back from Firestore,
    there's no way to show them the outcome here — the local "Change

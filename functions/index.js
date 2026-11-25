@@ -8,6 +8,7 @@
  */
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
+const { validatePublicOrder } = require('./public-order');
 admin.initializeApp();
 
 const EMAIL_DOMAIN = 'groundedmarket.com';
@@ -105,4 +106,44 @@ exports.deleteEmployeeAuth = onCall(async (request) => {
   const uid = snap.exists ? snap.data().authUid : null;
   if (uid) await admin.auth().deleteUser(uid).catch(() => {});
   return { ok: true };
+});
+
+// Public checkout. The browser used to create the order itself, and the
+// rules looked up every deli line. That lookup exceeded Firestore's
+// 1,000-expression limit, so those creates were refused. Validation lives
+// here now. Anonymous customers are signed in; staff orders still write
+// directly under isStaff().
+// Region stays at the default (us-central1) so firebase.functions() in
+// app.js reaches it without a region argument. invoker public is the
+// Cloud Run permission; Firebase Auth is checked below.
+exports.submitPublicOrder = onCall({ invoker: 'public' }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in to place an order.');
+  }
+  const db = admin.firestore();
+  let result;
+  try {
+    result = await validatePublicOrder(request.data && request.data.order, {
+      async getItem(id) {
+        const snap = await db.collection('meatCheeseItems').doc(id).get();
+        return snap.exists ? snap.data() : null;
+      },
+      async getDeliSettings() {
+        const snap = await db.collection('store').doc('deliCounter').get();
+        return snap.exists ? snap.data() : null;
+      },
+    });
+  } catch (err) {
+    console.error('submitPublicOrder validation failed:', err);
+    throw new HttpsError('internal', 'Something went wrong submitting your order. Please try again.');
+  }
+  if (!result.ok) throw new HttpsError(result.code, result.message);
+  try {
+    const ref = db.collection('orders').doc();
+    await ref.set(result.order);
+    return { id: ref.id };
+  } catch (err) {
+    console.error('submitPublicOrder write failed:', err);
+    throw new HttpsError('internal', 'Something went wrong submitting your order. Please try again.');
+  }
 });
